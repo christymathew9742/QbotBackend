@@ -6,7 +6,7 @@ const whatsappRoutes = require('./routes/whatsappRoutes/whatsappRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 
 const bodyParser = require('body-parser');
-const allowedOrigins = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'https://qbotassistance.vercel.app/'];
+const allowedOrigins = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'https://qbotassistance.vercel.app', 'https://qbot-assistant.vercel.app'];
 
 const errorHandler = require('./middlewares/errorHandler');
 const connectDB = require('./config/db');
