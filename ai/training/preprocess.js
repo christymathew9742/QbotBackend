@@ -43,7 +43,6 @@ const generateDynamicPrompt = async (
     ConsultantMessage,
     flowTrainingData,
     currentNodeId,
-    userData = {}
 ) => {
     if (!flowTrainingData) return null;
 
@@ -51,11 +50,9 @@ const generateDynamicPrompt = async (
     const currentDate = now.toISOString().split('T')[0];
     const currentTime = now.toLocaleTimeString();
     const currentYear = now.getFullYear();
-
-    console.log(conversationHistory,'conversationHistory')
-
     const structuredFlow = generateDynamicFlowData(flowTrainingData);
     const currentStep = structuredFlow?.find(step => step.nodeId === currentNodeId);
+
     if (!currentStep) return `⚠️ Error: Flow step with nodeId "${currentNodeId}" not found.`;
 
     const mandatoryFields = extractMandatoryFieldsFromFlow(flowTrainingData);

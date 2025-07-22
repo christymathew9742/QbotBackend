@@ -1,5 +1,6 @@
 const jsonBlockRegex = /```json\s*([\s\S]*?)\s*```/i;
 const trailingJsonRegex = /(?:\s*)({[\s\S]*}|\[[\s\S]*\])\s*$/;
+const jwt = require('jsonwebtoken');
 
 function cleanAIResponse(response) {
     if (typeof response !== 'string' || !response.trim()) return '';
@@ -113,6 +114,69 @@ const getValidationHint = (type, requiredFields = []) => {
     };
     return hints[type] || '';
 };
+
+const validateToken = (token) => {
+    const secretKey = process.env.JWT_SECRET
+    if (!token || !secretKey) {
+        return {
+            hastocken: false,
+            reason: 'Missing token or secret key',
+            decoded: null,
+            isExpired: true,
+            expTime: null,
+            remaining: null,
+            expiryPercentage: null,
+        };
+    }
+
+    try {
+        const decoded = jwt.verify(token, secretKey);
+        const now = Math.floor(Date.now() / 1000); // current time in seconds
+        const { exp, iat } = decoded;
+
+        const totalLifespan = exp - iat;
+        const remainingSeconds = exp - now;
+        const isExpired = remainingSeconds <= 0;
+        const expiryPercentage = totalLifespan > 0
+            ? `${((1 - remainingSeconds / totalLifespan) * 100).toFixed(2)}%`
+            : null;
+
+        let remaining;
+        if (isExpired) {
+            remaining = 'Expired';
+        } else if (remainingSeconds >= 86400) {
+            remaining = `${Math.floor(remainingSeconds / 86400)}d`;
+        } else {
+            const hrs = Math.floor(remainingSeconds / 3600);
+            const mins = Math.floor((remainingSeconds % 3600) / 60);
+            remaining = `${hrs > 0 ? hrs+'hr' : mins+'m'}`;
+        }
+
+        const expDate = new Date(exp * 1000);
+        const expInHours = `${expDate.getUTCHours()}h ${expDate.getUTCMinutes()}m`;
+
+        return {
+            hastocken: true,
+            reason: 'Valid token',
+            decoded,
+            isExpired,
+            expTime: expInHours,
+            remaining,
+            expiryPercentage,
+        };
+    } catch (err) {
+        return {
+            hastocken: true,
+            reason: err.name === 'TokenExpiredError' ? 'Token expired' : 'Invalid token',
+            decoded: null,
+            isExpired: true,
+            expTime: null,
+            remaining: null,
+            expiryPercentage: null,
+        };
+    }
+};
+
   
 module.exports = {
     cleanAIResponse,
@@ -120,6 +184,7 @@ module.exports = {
     extractMandatoryFieldsFromFlow,
     safeParseOptions,
     getValidationHint,
+    validateToken,
 };
   
 

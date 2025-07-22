@@ -5,6 +5,7 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const { baseUrl } = require('../config/whatsappConfig');
 const { default: axios } = require('axios');
+const {validateToken} = require('../utils/common');
 
 // Sign up a new user
 const signUp = async (req, res, next) => {
@@ -60,14 +61,20 @@ const login = async (req, res, next) => {
 const getCurrentUser = async (req, res, next) => {
 
     try {
-      const userData = await User.findById(req.user.userId).select('-password');
-      res.status(200).json({
-        success: true,
-        data: userData,
-      });
+        const userData = await User.findById(req.user.userId).select('-password');
+        const tocken  = userData?.verifytoken || '';
+        const tokenDetails = validateToken(tocken);
+      
+        res.status(200).json({
+          success: true,
+          data: {
+            ...userData.toObject(),
+            tokenDetails,
+          },
+        });
     } catch (error) {
-      next(error);
-    }
+        next(error);
+    }  
 };
 
 const testWhatsapConfig = async (req, res, next) => {

@@ -1,7 +1,6 @@
 const createAIResponse = require('../../ai/services/aiServices');
 
 const handleConversation = async (userData) => {
-  console.log(userData,'userData')
   try {
     const aiResponse = await createAIResponse(userData);
 
