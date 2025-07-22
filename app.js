@@ -20,7 +20,11 @@ require('dotenv').config();
 
 const app = express();
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+if (process.env.NODE_ENV !== 'production') {
+    app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+}
 
 app.use('/uploads', (req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
