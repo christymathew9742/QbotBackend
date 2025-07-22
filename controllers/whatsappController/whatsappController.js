@@ -30,14 +30,17 @@ const handleIncomingMessage = async (req, res) => {
     try {
         const message = req?.body?.entry?.[0]?.changes?.[0]?.value || '';
         const phoneNumberId = message?.metadata?.phone_number_id || '';
+        const whatsapData = message?.messages?.[0];
         const botUser =  await User.findOne({ phonenumberid: phoneNumberId });
         const botStatus = validateToken(botUser, process.env.JWT_SECRET);
+        console.log("botStatus", botStatus);
+        console.log("whatsapData?.text?.body", whatsapData?.text?.body);
+        console.log("botUser", botUser);
 
         if (!botUser) return res.status(401).send('Unauthorized user');
 
         if (!message?.messages?.[0] || !botStatus?.valid) return res.status(401).send(botStatus?.reason || 'Unauthorized user');
         
-        const whatsapData = message?.messages?.[0];
         const { from: userPhone, type } = whatsapData;
         const userId = botUser?._id || '';
         let { userData , aiResponce, audioMessage, imagedata } = {};
