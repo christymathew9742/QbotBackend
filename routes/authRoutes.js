@@ -8,26 +8,6 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 
-// const storage = multer.diskStorage({
-//     destination: (req, file, cb) => {
-//         const now = new Date();
-//         const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-//         const subfolder = `image/IMG-${month}`;
-//         const uploadPath = path.join(process.cwd(), 'uploads', subfolder);
-//         fs.mkdirSync(uploadPath, { recursive: true });
-//         req.uploadFolderPath = subfolder;
-//         cb(null, uploadPath);
-//     },
-//     filename: (req, file, cb) => {
-//         const uniqueId = uuidv4();
-//         const cleanName = file.originalname.replace(/\s+/g, '-');
-//         const fileName = `${uniqueId}-${cleanName}`;
-//         req.uploadedFileId = uniqueId;
-//         req.fileName = fileName;
-//         cb(null, fileName);
-//     },
-// });
-
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const now = new Date();
