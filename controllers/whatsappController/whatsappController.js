@@ -26,7 +26,7 @@ const verifyWebhook = async (req, res) => {
 };
 
 const handleIncomingMessage = async (req, res) => {
-
+    console.log("Received message from WhatsApp:", req.body);
     try {
         const message = req?.body?.entry?.[0]?.changes?.[0]?.value || '';
         const phoneNumberId = message?.metadata?.phone_number_id || '';
