@@ -13,11 +13,7 @@ const storage = multer.diskStorage({
         const now = new Date();
         const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
         const subfolder = `image/IMG-${month}`;
-        const isProduction = process.env.NODE_ENV === 'production';
-        const uploadPath = isProduction
-            ? path.join('/tmp', subfolder) 
-            : path.join(process.cwd(), 'uploads', subfolder); 
-
+        const uploadPath = path.join(process.cwd(), 'uploads', subfolder);
         fs.mkdirSync(uploadPath, { recursive: true });
         req.uploadFolderPath = subfolder;
         cb(null, uploadPath);

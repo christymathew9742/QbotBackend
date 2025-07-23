@@ -148,7 +148,13 @@ const updateUser = async (req, res, next) => {
         if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
     
         const existingUser = await User.findById(userId);
+        // const existingPhonenumberid = await User.findOne({ phonenumberid: req.body.phonenumberid });
+        
         if (!existingUser) return res.status(404).json({ success: false, message: 'User not found' });
+       
+        // if (existingPhonenumberid) {
+        //     throw new Error('Phonenumber ID already in use');
+        // }
     
         const updateFields = {};
     
