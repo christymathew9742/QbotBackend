@@ -117,8 +117,6 @@ const testWhatsapConfig = async (req, res, next) => {
         // Send message
         const response = await axios.post(`${baseUrl}/${userData.phonenumberid}/messages`, payload, config);
 
-        console.log('WhatsApp API Response:', response.data);
-
         return res.status(200).json({
             success: true,
             message: 'Message sent successfully via WhatsApp API',
@@ -148,13 +146,22 @@ const updateUser = async (req, res, next) => {
         if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
     
         const existingUser = await User.findById(userId);
-        // const existingPhonenumberid = await User.findOne({ phonenumberid: req.body.phonenumberid });
         
         if (!existingUser) return res.status(404).json({ success: false, message: 'User not found' });
        
-        // if (existingPhonenumberid) {
-        //     throw new Error('Phonenumber ID already in use');
-        // }
+        if (req.body.phonenumberid) {
+            const existingPhonenumberidUser = await User.findOne({
+              phonenumberid: req.body.phonenumberid,
+              _id: { $ne: userId },
+            });
+
+            if (existingPhonenumberidUser) {
+                return res.status(200).json({
+                    success: false,
+                    message: 'Phone number ID already exists.',
+                });
+            }
+        }
     
         const updateFields = {};
     
@@ -181,15 +188,16 @@ const updateUser = async (req, res, next) => {
         // Token generation
         if (req.body.generateToken === true && existingUser.generateToken !== true) {
             const token = jwt.sign({
-            userId: existingUser._id.toString(),
-            issuedAt: new Date().toISOString(),
-        }, process.env.JWT_SECRET, { expiresIn: '1d' });
+                userId: existingUser._id.toString(),
+                issuedAt: new Date().toISOString(),
+            }, 
+            process.env.JWT_SECRET, { expiresIn: '1d' });
             updateFields.verifytoken = token;
             updateFields.generateToken = true;
         }
 
         const updatedUser = await updateUserService(userId, updateFields);
-        res.status(200).json({ success: true, message: 'Profile updated successfully', data: updatedUser });
+        res.status(200).json({ success: true, message: 'Profile updated', data: updatedUser });
     } catch (error) {
         console.error('Update user error:', error);
         next(new Error(`User update failed: ${error.message}`));

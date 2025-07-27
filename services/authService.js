@@ -6,7 +6,7 @@ const registerUserService = async ({ username, email, password, role}, creatorRo
     try {
         const existingUser = await User.findOne({ email });
         if (existingUser) {
-            throw new Error('Email already in use');
+            throw new Error('Email already in use.');
         }
         const userRole = (creatorRole === 'superadmin' && role) ? role : 'user';
         const user = new User({ username, email, password, role: userRole});
@@ -25,7 +25,7 @@ const loginUserService = async ({ email, password }) => {
     try {
         const user = await User.findOne({ email });
         if (!user) {
-            const error = new Error('Invalid email');
+            const error = new Error('Invalid email.');
             error.statusCode = 401;
             throw error;
         }
@@ -50,20 +50,20 @@ const loginUserService = async ({ email, password }) => {
 const updateUserService = async (userId, updateFields) => {
    
     try {
-      const updatedUser = await User.findByIdAndUpdate(
-        userId,
-        { $set: updateFields },
-        { new: true, runValidators: true }
-      ).select('-password');
+        const updatedUser = await User.findByIdAndUpdate(
+            userId,
+            { $set: updateFields },
+            { new: true, runValidators: true }
+        ).select('-password');
   
-      if (!updatedUser) {
-        throw new Error('User not found');
-      }
-      return updatedUser;
+        if (!updatedUser) {
+            throw new Error('User not found');
+        }
+        return updatedUser;
 
     } catch (error) {
-      console.error(error); 
-      throw new Error('Failed to update user profile');
+        console.error(error); 
+        throw error;
     }
 };
 
