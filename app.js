@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const authRoutes = require('./routes/authRoutes');
 const chatBotRoute = require('./routes/chatBotRoute/chatBotRoute')
+const appointmentRoute = require('./routes/appointmentRoutes')
 const whatsappRoutes = require('./routes/whatsappRoutes/whatsappRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 
@@ -48,6 +49,7 @@ connectDB();
 
 app.use('/api/auth', authRoutes);   
 app.use('/api/createbots', chatBotRoute),
+app.use('/api/appointments', appointmentRoute),
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/admin', adminRoutes);
 

@@ -29,7 +29,7 @@ const getAllChatBot = async (req, res, next) => {
     }
 };
 
-// Get a specific product by ID for the authenticated user
+// Get a specific chatBot by ID for the authenticated user
 const getChatBotById = async (req, res, next) => {
     try {
             const chatBot = await chatBotService.getChatBotById(req.params.id, req.user.userId);

@@ -251,7 +251,7 @@ const clearUserSessionData = (userPhone) => {
 };
 
 const createAIResponse = async (chatData) => {
-    const { userPhone, userInput: prompt, userOption, userId } = chatData;
+    const { userPhone, userInput: prompt, userOption, userId, profileName } = chatData;
     const mutex = getUserMutex(userPhone);
 
     return await mutex.runExclusive(async () => {
@@ -362,7 +362,7 @@ const createAIResponse = async (chatData) => {
 
             let flowTrainingData;
             try {
-                flowTrainingData = await ChatBotModel.findOne({ _id: session.selectedFlowId, user: userId, status: true }, 'edges nodes').lean();
+                flowTrainingData = await ChatBotModel.findOne({ _id: session.selectedFlowId, user: userId, status: true }, 'edges nodes title').lean();
             } catch (err) {
                 console.error('Training flow load error:', err);
                 return { message: "😢📅 I'm sorry, but I'm unable to show Booking." };
@@ -412,8 +412,10 @@ const createAIResponse = async (chatData) => {
                     } else {
                         await AppointmentModal.create({
                             user: userId,
+                            flowTitle: flowTrainingData?.title,  
                             whatsAppNumber: userPhone,
-                            flowId: session.selectedFlowId,
+                            profileName,
+                            flowId: session?.selectedFlowId,
                             status: 'booked',
                             data: appointmentData,
                         });

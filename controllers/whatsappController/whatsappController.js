@@ -5,7 +5,7 @@ const { Client } = require('whatsapp-web.js');
 const User = require('../../models/User');
 const vision = require('@google-cloud/vision');
 const jwt = require('jsonwebtoken');
-const { whatsappPhoneId, apiToken, webToken , baseUrl} = require('../../config/whatsappConfig');
+const { apiToken, baseUrl} = require('../../config/whatsappConfig');
 const handleConversation = require('../../services/whatsappService/whatsappService'); 
 // const {processAudioWithAzureSTT, playTextToSpeech}  = require('../../ai/voiceAssistant/voiceAssistant');
 
@@ -26,7 +26,7 @@ const verifyWebhook = async (req, res) => {
 };
 
 const handleIncomingMessage = async (req, res) => {
-    
+
     try {
         const message = req?.body?.entry?.[0]?.changes?.[0]?.value || '';
         const phoneNumberId = message?.metadata?.phone_number_id || '';
@@ -36,14 +36,16 @@ const handleIncomingMessage = async (req, res) => {
 
         if (!botUser || !message?.messages?.[0] || !botStatus?.valid) return res.status(401).send(botStatus?.reason || 'Unauthorized user');
 
-        const { from: userPhone, type } = whatsapData;
+        const { from: userPhone, type, profile } = whatsapData;
         const userId = botUser?._id || '';
+        const profileName = profile?.name;
         let { userData , aiResponce, audioMessage, imagedata } = {};
 
         switch (type) {
             case 'text':
                 userData = {
                     userPhone,
+                    profileName,
                     userInput:whatsapData?.text?.body,
                     userOption:'',
                     userId,
@@ -56,6 +58,7 @@ const handleIncomingMessage = async (req, res) => {
             case 'interactive':
                 userData = {
                     userPhone,
+                    profileName,
                     userInput:'',
                     userOption:whatsapData?.interactive?.list_reply?.id,
                     userId,
@@ -81,7 +84,10 @@ const handleIncomingMessage = async (req, res) => {
         }
         
         await sendMessageToWhatsApp(userPhone, aiResponce, botUser);
-        res.status(200).send(botStatus?.reason);
+
+        if (req.body.messages || Array.isArray(req.body.messages)) {
+            res.status(200).send(botStatus?.reason);
+        }
     } catch (error) {
         console.error('Error:', error?.message);
         res.status(500).send('Internal server error');
