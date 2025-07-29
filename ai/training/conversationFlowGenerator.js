@@ -192,7 +192,7 @@ const generateDynamicFlowData = (flowData) => {
         '- Tone  Rule: Ask all questions politely, directly, and neutrally — avoid robotic or overly smart tone.',
         '- Rule: Never alter, summarize, interpret, or wrap the message. Use the exact content inside instructions without change.',
         '- Rule: Respond with no more than **20 words**.',
-        '- Rule: If the conversation flow has no next target step, politely conclude the conversation.✅ Final step must include both data object and thank-you message.',
+        '- Rule: If the conversation flow has no next target step, politely conclude the conversation.✅ Final step must include both data object and thank-you message without fail.',
         '- Keyword Enforcement: "Initial Message", "Follow-up Required", "Initial Preference", "Mandatory", "Expected", "Validate" — respect these strictly as behavioral directives.',
 
         '**Fallback Handling:**',

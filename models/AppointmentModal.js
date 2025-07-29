@@ -11,6 +11,12 @@ const AppointmentSchema = new Schema({
         type: String,
         required: true  
     },
+    flowTitle: {
+        type: String, 
+    },
+    profileName: {
+        type: String,
+    },
     flowId: {
         type: String,
         required: true  
