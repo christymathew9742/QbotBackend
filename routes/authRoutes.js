@@ -1,6 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const { signUp, login,getCurrentUser, testWhatsapConfig, updateUser} = require('../controllers/authController');
+const { 
+    signUp,
+    login, 
+    getCurrentUser, 
+    testWhatsapConfig, 
+    updateUser, 
+    googleLogin,
+    sendOTP,
+    verifyOTP,
+    resetPassword,
+} = require('../controllers/authController');
 const authMiddleware = require('../middlewares/authMiddleware');
 const userMiddleware = require('../middlewares/userMiddleware');
 const multer = require('multer');
@@ -39,7 +49,12 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ storage, fileFilter });
 
 router.post('/signup', signUp);
+router.post('/google-login', googleLogin);
 router.post('/login', login);
+router.post('/forgot-password', sendOTP);
+router.post('/verify-otp', verifyOTP);
+router.post('/reset-password', resetPassword);
+
 router.put('/profile/:userId', authMiddleware, userMiddleware, (req, res, next) => {
     const { updateUserProfile } = require('../controllers/userController');
     updateUserProfile(req, res, next);

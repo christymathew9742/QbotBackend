@@ -1,6 +1,5 @@
 const { JSDOM } = require('jsdom');
 const { getValidationHint } = require('../../utils/common');
-const SC = require('./rule'); 
 
 const generateDynamicFlowData = (flowData) => {
   const output = [];
@@ -40,7 +39,7 @@ const generateDynamicFlowData = (flowData) => {
         requiredFields = [...(dom.window.document.body.innerHTML.match(/\[(.*?)\]/g) || [])].map(v => v.slice(1, -1));
       }
 
-      const cleanedMessage = field === "messages" ? value.replace(/<[^>]+>/g, "").trim() : "";
+      const cleanedMessage = field === "messages" ? value?.replace(/<[^>]+>/g, "").trim() : "";
       const validationHint = getValidationHint(type, requiredFields);
 
       switch (field) {
@@ -48,7 +47,7 @@ const generateDynamicFlowData = (flowData) => {
           return `- Initial Message:\n  - "${cleanedMessage}"\n  - Ask this exactly without rephrasing. Politely verify spelling. If off-topic, redirect to this question again.`;
 
         case "replay":
-          return requiredFields.length
+          return requiredFields?.length
             ? `- Follow-up Required (Step ${currentStep}):\n  - Ask for: ${generatePromptList(requiredFields)}\n - ${validationHint}\n  - Wait until all required fields are collected before proceeding.`
             : `- Follow-up (Step ${currentStep}): No required fields detected. You may proceed.`;
 
@@ -122,21 +121,21 @@ const generateDynamicFlowData = (flowData) => {
       const fieldNames = [];
       let hasPreference = false;
 
-      flowData.nodes.forEach(node => {
+      flowData?.nodes?.forEach(node => {
         node?.data?.inputs?.forEach(input => {
-          if (input.field === 'replay') {
-            const matches = input.value.match(/\[([^\]]+)\]/g);
+          if (input?.field === 'replay') {
+            const matches = input?.value?.match(/\[([^\]]+)\]/g);
             if (matches) {
               matches.forEach(match => {
-                const fieldName = match.replace(/[\[\]]/g, '');
-                if (!fieldNames.includes(fieldName)) {
-                  fieldNames.push(fieldName);
+                const fieldName = match?.replace(/[\[\]]/g, '');
+                if (!fieldNames?.includes(fieldName)) {
+                  fieldNames?.push(fieldName);
                 }
               });
             }
           }
           // Check if this is a preference node
-          if (input.field === 'preference') {
+          if (input?.field === 'preference') {
             hasPreference = true;
           }
         });
@@ -144,7 +143,7 @@ const generateDynamicFlowData = (flowData) => {
 
       // Generate object structure template
       const dataObjectStructure = `{
-        ${fieldNames.map(f => `  "${f}": "[collected_value || null]"`).join(',\n')}${hasPreference ? ',\n  "preference": [{preferenceTitle:optionValues}]' : ''}
+        ${fieldNames?.map(f => `  "${f}": "[collected_value || null]"`).join(',\n')}${hasPreference ? ',\n  "preference": [{preferenceTitle:optionValues}]' : ''}
       }`;
 
       const preferenceInstructions = hasPreference ? [

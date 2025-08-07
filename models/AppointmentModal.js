@@ -1,36 +1,53 @@
 const mongoose = require('mongoose');
-const { Schema, Types, model } = mongoose;
+const { Schema, model, Types } = mongoose;
 
-const AppointmentSchema = new Schema({
-    user: { 
-        type: Types.ObjectId, 
-        ref: 'User', 
-        required: true 
-    },
-    whatsAppNumber: {
+const MessageSchema = new Schema({
+    sender: {
         type: String,
-        required: true  
+        required: true,
     },
-    flowTitle: {
-        type: String, 
+    message: {
+        type: Schema.Types.Mixed,
+        required: true,
     },
-    profileName: {
-        type: String,
+    timestamp: {
+        type: Date,
+        default: Date.now,
     },
-    flowId: {
-        type: String,
-        required: true  
-    },
-    status: {
-        type: String,
-        required: true  
-    },
-    data: {
-        type: Map,
-        of: Schema.Types.Mixed,
-        required: true
-    }
+});
 
-}, { timestamps: true });
+const AppointmentSchema = new Schema(
+    {
+        user: {
+            type: Types.ObjectId,
+            ref: 'User',
+            required: true,
+        },
+        whatsAppNumber: {
+            type: String,
+            required: true,
+        },
+        flowId: {
+            type: String,
+            required: true,
+        },
+        status: {
+            type: String,
+            required: true,
+        },
+        data: {
+            type: Map,
+            of: Schema.Types.Mixed,
+            required: true,
+        },
+        history: {
+            type: [MessageSchema],
+            required: true,
+        },
+        flowTitle: String,
+        profileName: String,
+    },
+    { timestamps: true }
+);
 
 module.exports = model('AppointmentModal', AppointmentSchema);

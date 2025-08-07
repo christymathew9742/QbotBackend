@@ -5,7 +5,13 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const { baseUrl } = require('../config/whatsappConfig');
 const { default: axios } = require('axios');
-const {validateToken} = require('../utils/common');
+const {validateToken, generateOtpEmailTemplate} = require('../utils/common');
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const { generateOTP } = require('../utils/otp');
+const nodemailer = require('nodemailer'); // or SMS API
+const bcrypt = require('bcryptjs');
+const sendSmsOtp =require('../utils/sendSms')
 
 // Sign up a new user
 const signUp = async (req, res, next) => {
@@ -203,13 +209,156 @@ const updateUser = async (req, res, next) => {
         next(new Error(`User update failed: ${error.message}`));
     }
 };
+
+const googleLogin = async (req, res) => {
+    const { token } = req.body;
+
+    try {
+        const ticket = await googleClient.verifyIdToken({
+            idToken: token,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+
+        const payload = ticket.getPayload();
+        const { email, name, sub, picture } = payload;
+
+        let user = await User.findOne({ email });
+
+        if (!user) {
+            user = new User({
+                username: name,
+                email,
+                password: sub,
+                role: 'user',
+                googleProfilePic: picture,
+            });
+            await user.save();
+        } else {
+
+            if (user.googleProfilePic !== picture) {
+                user.googleProfilePic = picture;
+                await user.save();
+            }
+        }
+
+        const jwtToken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
+
+        res.status(200).json({
+            success: true,
+            message: 'Google login successful',
+            data: {
+                user: {
+                    userId: user._id,
+                    username: user.username,
+                    email: user.email,
+                    googleProfilePic: user.googleProfilePic,
+                },
+                token: jwtToken,
+            },
+        });
+    } catch (error) {
+        console.error('Google Login Error:', error);
+        res.status(401).json({ success: false, message: 'Invalid Google token' });
+    }
+};
+
+const sendOTP = async (req, res) => {
+    const { emailOrPhone } = req.body;
+
+    try {
+        const user = await User.findOne({
+            $or: [{ email: emailOrPhone }, { phone: emailOrPhone }],
+        });
   
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        const otp = generateOTP();
+        const expiry = Date.now() + 10 * 60 * 1000; 
+
+        user.otpCode = otp;
+        user.otpExpiresAt = new Date(expiry);
+        await user.save();
+  
+        // send mail
+        if (user.email && user.email.trim() === emailOrPhone.trim()) {
+            const transporter = nodemailer.createTransport({
+                service: 'gmail',
+                auth: {
+                    user: process.env.MAIL_FROM,
+                    pass: process.env.MAIL_PASS,
+                },
+            });
+
+            await transporter.sendMail({
+                from: process.env.MAIL_FROM,
+                to: user.email,
+                subject: 'Your Qbot OTP Code',
+                html: generateOtpEmailTemplate(otp),
+            });
+        }
+
+        // send sms
+        if (user.phone && user.phone.trim() === emailOrPhone.trim()) {
+            await sendSmsOtp(user.phone, otp);
+        }
+
+        res.status(200).json({ success: true, message: 'OTP sent successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Failed to send OTP' });
+    }
+};
+
+const verifyOTP = async (req, res) => {
+    const { emailOrPhone, otp } = req.body;
+
+    if (!emailOrPhone || !otp) return res.status(400).json({ success: false, message: 'OTP, email or phone number is required' });
+  
+    try {
+        const user = await User.findOne({
+            $or: [{ email: emailOrPhone }, { phone: emailOrPhone }],
+            otpCode: otp,
+            otpExpiresAt: { $gt: new Date() },
+        });
+  
+        if (!user) return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+  
+        res.status(200).json({ success: true, message: 'OTP verified', userId: user._id });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'OTP verification failed' });
+    }
+};
+
+const resetPassword = async (req, res) => {
+    const { userId, password } = req.body;
+
+    if (!userId) return res.status(400).json({ success: false, message: 'User ID is required' });
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        user.password = password;
+        user.otpCode = null;
+        user.otpExpiresAt = null;
+        await user.save();
+
+        res.status(200).json({ success: true, message: 'Password reset successful' });
+    } catch (err) {
+        console.error('Save error:', err);
+        res.status(500).json({ success: false, message: 'Reset password failed' });
+    }
+};
+
 module.exports = {
     signUp,
     login,
     getCurrentUser,
     testWhatsapConfig,
     updateUser,
+    googleLogin,
+    sendOTP,
+    verifyOTP,
+    resetPassword,
 };
 
 

@@ -177,7 +177,132 @@ const validateToken = (token) => {
     }
 };
 
+const generateOtpEmailTemplate = (otp) => {
+    const currentYear = new Date().getFullYear();
   
+    return `
+        <div style="max-width: 480px; margin: 0 auto; font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb; padding: 24px; border-radius: 12px; color: #1f2937;">
+            <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 12px; color: #111827;">Password Reset OTP</h2>
+            <p style="font-size: 14px; margin-bottom: 20px; color: #4b5563;">
+                Hello, <br />
+                Please use the following OTP to reset your password. This code is valid for <strong>10 minutes</strong>.
+            </p>
+            <div style="text-align: center; margin: 24px 0;">
+                <span style="display: inline-block; font-size: 28px; font-weight: bold; color: #2563eb; background-color: #e0f2fe; padding: 12px 24px; border-radius: 8px; letter-spacing: 4px;">
+                    ${otp}
+                </span>
+            </div>
+            <p style="font-size: 13px; color: #6b7280; margin-top: 20px;">
+                If you didn’t request a password reset, you can safely ignore this email.
+            </p>
+            <p style="font-size: 12px; color: #9ca3af; margin-top: 28px; text-align: center;">
+                &copy; ${currentYear} Qbot. All rights reserved.
+            </p>
+        </div>
+    `;
+}
+
+// const parseChatHistory = (rawData)=> {
+//     return rawData.map(line => {
+//         const colonIndex = line.indexOf(':');
+        
+//         if (colonIndex === -1) {
+//             // No colon found, treat whole line as system message or fallback
+//             return {
+//                 sender: 'System',
+//                 message: line.trim()
+//             };
+//         }
+    
+//         const sender = line.slice(0, colonIndex).trim();
+//         const messageStr = line.slice(colonIndex + 1).trim();
+    
+//         let message;
+//         try {
+//             message = JSON.parse(messageStr); 
+//         } catch {
+//             message = messageStr;
+//         }
+    
+//         return { sender, message };
+//     });
+// }
+
+
+const parseChatHistory = (rawData) => {
+    const parsed = [];
+
+    const isPureJson = (msg) => {
+        if (typeof msg !== 'string') return false;
+        const trimmed = msg.trim();
+        try {
+            const parsed = JSON.parse(trimmed);
+            return typeof parsed === 'object' && parsed !== null;
+        } catch {
+            return false;
+        }
+    };
+
+    const removeJsonIfMixed = (msg) => {
+        if (typeof msg !== 'string') return msg;
+
+        const trimmed = msg.trim();
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (typeof parsed === 'object' && parsed !== null) {
+                return parsed;
+            }
+        } catch {
+            // continue to remove trailing JSON
+        }
+
+        const jsonStartIndex = msg.indexOf('{');
+        const arrayStartIndex = msg.indexOf('[');
+        const startIndex = Math.min(
+            ...(jsonStartIndex !== -1 ? [jsonStartIndex] : [Infinity]),
+            ...(arrayStartIndex !== -1 ? [arrayStartIndex] : [Infinity])
+        );
+
+        if (startIndex !== Infinity) {
+            return msg.slice(0, startIndex).trim();
+        }
+
+        return msg;
+    };
+
+    for (let i = 0; i < rawData.length; i++) {
+        const current = rawData[i];
+        let { sender, message, timestamp } = current;
+
+        if (sender === 'AI') {
+            message = removeJsonIfMixed(message);
+            parsed.push({ sender, message, timestamp });
+        }
+
+        else if (sender === 'Consultant') {
+            const previous = parsed[parsed.length - 1];
+
+            if (
+                previous &&
+                previous.sender === 'AI' &&
+                Array.isArray(previous.message)
+            ) {
+                const match = previous.message.find((item) => item.id === message);
+                if (match) {
+                    message = match.value;
+                }
+            }
+
+            if (typeof message === 'string' && message.trim() === '') continue;
+
+            parsed.push({ sender, message, timestamp });
+        }
+    }
+
+    return parsed;
+};
+
+
 module.exports = {
     cleanAIResponse,
     extractJsonFromResponse,
@@ -185,6 +310,8 @@ module.exports = {
     safeParseOptions,
     getValidationHint,
     validateToken,
+    generateOtpEmailTemplate,
+    parseChatHistory,
 };
   
 

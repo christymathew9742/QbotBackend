@@ -29,6 +29,7 @@ const userSchema = new mongoose.Schema({
       type: String,
     }
   },
+  googleProfilePic: String,
   displayname: String,
   country:String,
   state:String,
@@ -44,7 +45,9 @@ const userSchema = new mongoose.Schema({
     type: String, 
     enum: ['user', 'admin', 'superadmin'], 
     default: 'user', 
-  }
+  },
+  otpCode: { type: String },
+  otpExpiresAt: { type: Date },
 }, { timestamps: true });
 
 userSchema.pre('save', function(next) {

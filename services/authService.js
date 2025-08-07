@@ -29,8 +29,9 @@ const loginUserService = async ({ email, password }) => {
             error.statusCode = 401;
             throw error;
         }
-    
+
         const passwordMatch = bcrypt.compareSync(password, user.password);
+        
         if (!passwordMatch) {
             const error = new Error('Invalid  password');
             error.statusCode = 401;

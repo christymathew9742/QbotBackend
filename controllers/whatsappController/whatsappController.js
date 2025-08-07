@@ -1,24 +1,18 @@
 const axios = require('axios');
-const fs = require("fs");
-const path = require('path');
-const { Client } = require('whatsapp-web.js');
-const User = require('../../models/User');
+const NodeCache = require('node-cache');
 const jwt = require('jsonwebtoken');
-const { apiToken, baseUrl } = require('../../config/whatsappConfig');
+const User = require('../../models/User');
 const handleConversation = require('../../services/whatsappService/whatsappService');
+const { baseUrl } = require('../../config/whatsappConfig');
 
-const messageCache = new Set(); // In-memory cache for deduplication
+const messageCache = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
 
 const verifyWebhook = async (req, res) => {
     const challenge = req.query['hub.challenge'];
     const webHooktoken = req.query['hub.verify_token'];
     const isRecord = await User.findOne({ verifytoken: webHooktoken });
 
-    if (isRecord) {
-        res.status(200).send(challenge);
-    } else {
-        res.status(403).send('Invalid verify token');
-    }
+    return isRecord ? res.status(200).send(challenge) : res.status(403).send('Invalid verify token');
 };
 
 const handleIncomingMessage = async (req, res) => {
@@ -26,15 +20,14 @@ const handleIncomingMessage = async (req, res) => {
         const message = req?.body?.entry?.[0]?.changes?.[0]?.value || {};
         const contact = message?.contacts?.[0] || {};
         const profile = contact?.profile || {};
-        const whatsapData = message?.messages?.[0] || {};;
-
+        const whatsapData = message?.messages?.[0] || {};
+        // Ignore status/system messages
         if (!whatsapData || message?.statuses) {
             return res.status(200).send('Ignoring status/system message');
         }
 
         const phoneNumberId = message?.metadata?.phone_number_id;
         const botUser = await User.findOne({ phonenumberid: phoneNumberId });
-
         if (!botUser) return res.status(401).send('Unauthorized: No matching bot user');
 
         const botStatus = validateToken(botUser, process.env.JWT_SECRET);
@@ -44,37 +37,43 @@ const handleIncomingMessage = async (req, res) => {
         const userPhone = whatsapData?.from;
         const profileName = profile?.name || '';
         const type = whatsapData?.type;
-        const userId = botUser?._id;
 
-        // ✅ Deduplicate
-        if (messageCache.has(messageId)) {
-            return res.status(200).send('Duplicate message ignored');
-        }
-        messageCache.add(messageId);
-        setTimeout(() => messageCache.delete(messageId), 60000); // clear after 1 min
+        // ✅ Prevent duplicate processing
+        if (messageCache.get(messageId)) return res.status(200).send('Duplicate message ignored');
+        messageCache.set(messageId);
+        setTimeout(() => messageCache.del(messageId), 60000); // Remove after 1 min
 
-        // ✅ Ignore echo messages from bot itself
+        // ✅ Prevent bot's own echo messages
         if (userPhone === message?.metadata?.display_phone_number) {
             return res.status(200).send('Echo message ignored');
         }
 
-        if (!whatsapData?.text?.body && !whatsapData?.interactive?.list_reply?.id ) {
-            return res.status(400).send('No text body found in message');
+        // ✅ Ignore empty or unsupported message types
+        if (!whatsapData?.text?.body && !whatsapData?.interactive?.list_reply?.id) {
+            return res.status(400).send('No valid message body found');
         }
 
-        let aiResponce = null;
+        // ✅ Prevent replay of old messages
+        const now = Date.now() / 1000;
+        const msgTimestamp = parseInt(whatsapData?.timestamp || '0', 10);
+        if (now - msgTimestamp > 90) {
+            return res.status(200).send('Old message ignored');
+        }
+
+        let aiResponse = null;
         let userData;
 
         switch (type) {
             case 'text':
+                const body = whatsapData?.text?.body?.trim();
                 userData = {
                     userPhone,
                     profileName,
-                    userInput: whatsapData?.text?.body,
+                    userInput: body,
                     userOption: '',
-                    userId,
+                    userId: botUser._id,
                 };
-                aiResponce = await handleConversation(userData);
+                aiResponse = await handleConversation(userData);
                 break;
 
             case 'interactive':
@@ -82,42 +81,26 @@ const handleIncomingMessage = async (req, res) => {
                 const selectedOption = interactiveType === 'list_reply'
                     ? whatsapData?.interactive?.list_reply?.id
                     : whatsapData?.interactive?.button_reply?.id;
-
                 userData = {
                     userPhone,
                     profileName,
                     userInput: '',
                     userOption: selectedOption,
-                    userId,
+                    userId: botUser._id,
                 };
 
-                if (interactiveType === 'list_reply') {
-                    aiResponce = await handleConversation(userData);
-                } else {
-                    aiResponce = { resp: `You selected: ${selectedOption}`, type: "text" };
-                }
-                break;
-
-            case 'button':
-                aiResponce = { resp: 'You selected a button option.', type: "text" };
-                break;
-
-            case 'audio':
-                // Optional: process audio
-                // const audioId = whatsapData?.audio?.id;
-                // await processAudioMessage(audioId);
-                aiResponce = { resp: 'Audio message received (not yet supported).', type: "text" };
-                break;
-
-            case 'image':
-                aiResponce = { resp: 'Image message received (not yet supported).', type: "text" };
+                aiResponse = await handleConversation(userData);
                 break;
 
             default:
-                return res.status(400).send('Unsupported message type.');
+                return res.status(400).send('Unsupported message type');
         }
 
-        await sendMessageToWhatsApp(userPhone, aiResponce, botUser);
+        // ✅ Only send message if AI response is valid
+        if (aiResponse?.resp) {
+            await sendMessageToWhatsApp(userPhone, aiResponse, botUser);
+        }
+
         res.status(200).send('Message handled');
     } catch (error) {
         console.error('Webhook error:', error);
@@ -127,27 +110,23 @@ const handleIncomingMessage = async (req, res) => {
 
 const validateToken = (user, secretKey) => {
     const token = user?.verifytoken || '';
-    if (!token || !secretKey) {
-        return { valid: false, reason: 'Missing token or secret', decoded: null };
-    }
+    if (!token || !secretKey) return { valid: false, reason: 'Missing token or secret' };
 
     try {
-        const decoded = jwt.verify(token, secretKey);
-        return { valid: true, reason: 'Token valid', decoded };
+        jwt.verify(token, secretKey);
+        return { valid: true, reason: 'Token valid' };
     } catch (err) {
         return {
             valid: false,
             reason: err.name === 'TokenExpiredError' ? 'Token expired' : 'Invalid token',
-            decoded: null,
         };
     }
 };
 
-const sendMessageToWhatsApp = async (phoneNumber, aiResponce, botUser) => {
+const sendMessageToWhatsApp = async (phoneNumber, aiResponse, botUser) => {
     try {
-        const { resp, type, mainTitle = "", options = [] } = aiResponce || {};
+        const { resp, type, mainTitle = "", options = [] } = aiResponse || {};
         let data;
-
         if (type === "list") {
             const rows = resp.map(item => ({
                 id: item._id?.toString(),
@@ -206,7 +185,7 @@ const sendMessageToWhatsApp = async (phoneNumber, aiResponce, botUser) => {
             }
         );
     } catch (error) {
-        console.error("Error sending message:", error.response?.data || error.message);
+        console.error("Error sending message:", error?.response?.data || error?.message);
     }
 };
 
@@ -214,6 +193,8 @@ module.exports = {
     verifyWebhook,
     handleIncomingMessage,
 };
+
+
 
 
 

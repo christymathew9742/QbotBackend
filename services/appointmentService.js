@@ -2,19 +2,39 @@ const  AppointmentModal = require('../models/AppointmentModal');
 const { errorResponse } = require('../utils/errorResponse');
 
 
-// Getting all Appointments with pagination, search, status
-const getAllAppointments = async (userId, page = 1, limit = 9, search = '', status = null) => {
-
+// Getting all Appointments with pagination, search, status, date
+const getAllAppointments = async (
+    userId,
+    page = 1,
+    limit = 9,
+    search = '',
+    status = null,
+    date = null,
+) => {
     try {
         const filter = { user: userId };
         search = search.trim();
-        
+    
         if (search) {
-            filter.title = { $regex: search, $options: 'i' };
+            filter.$or = [
+                { flowTitle: { $regex: search, $options: 'i' } },
+                { whatsAppNumber: { $regex: search, $options: 'i' } }
+            ];
         }
     
         if (status && status !== 'null') {
-            filter.status = status === 'booked';
+            filter.status = status; 
+        }
+    
+        if (date && date !== 'null') {
+            const selectedDate = new Date(date);
+            const nextDate = new Date(selectedDate);
+            nextDate.setDate(selectedDate.getDate() + 1);
+    
+            filter.createdAt = {
+                $gte: selectedDate,
+                $lt: nextDate
+            };
         }
     
         const skip = (page - 1) * limit;
@@ -34,7 +54,7 @@ const getAllAppointments = async (userId, page = 1, limit = 9, search = '', stat
         };
     } catch (error) {
         throw new Error(`Error fetching appointment: ${error.message}`);
-    }    
+    }
 };
 
 // Getting a single Appointments by ID for a specific user

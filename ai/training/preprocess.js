@@ -63,7 +63,7 @@ const generateDynamicPrompt = async (
 
     const flowData = structuredFlow?.map(section => `- ${section.section} (Node ID: ${section.nodeId || 'N/A'}):\n  ${section.instructions.map(i => `  - ${i}`).join('\n')}`)
         .join('\n');
-
+    // console.log(flowData)
     const prompt = `
         **Training Data**
         Key Flow Instructions:
