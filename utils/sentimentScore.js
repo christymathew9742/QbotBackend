@@ -136,7 +136,6 @@ const getBehaviourScore = async (
     return Math.round(Math.min(10, Math.max(0, adjustedScore)));
 };
   
-
 // ---------------------- RESPONSE SPEED SCORE ----------------------
 const getResponseSpeedScore = async (chatHistory, aiSender = 'AI', userSender = 'Consultant') => {
     let totalDelay = 0;
