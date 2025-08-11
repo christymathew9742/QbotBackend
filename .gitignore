@@ -25,4 +25,4 @@ node_modules
 #env files
 .env 
 #ignore uploads
-uploads/
+uploads
