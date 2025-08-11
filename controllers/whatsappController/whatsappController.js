@@ -21,6 +21,8 @@ const handleIncomingMessage = async (req, res) => {
         const contact = message?.contacts?.[0] || {};
         const profile = contact?.profile || {};
         const whatsapData = message?.messages?.[0] || {};
+        const jsonString = JSON.stringify(whatsapData?.timestamp);
+        
         // Ignore status/system messages
         if (!whatsapData || message?.statuses) {
             return res.status(200).send('Ignoring status/system message');
@@ -62,7 +64,7 @@ const handleIncomingMessage = async (req, res) => {
 
         let aiResponse = null;
         let userData;
-
+       
         switch (type) {
             case 'text':
                 const body = whatsapData?.text?.body?.trim();
@@ -72,7 +74,9 @@ const handleIncomingMessage = async (req, res) => {
                     userInput: body,
                     userOption: '',
                     userId: botUser._id,
+                    whatsTimestamp: whatsapData?.timestamp,
                 };
+                
                 aiResponse = await handleConversation(userData);
                 break;
 
@@ -87,6 +91,7 @@ const handleIncomingMessage = async (req, res) => {
                     userInput: '',
                     userOption: selectedOption,
                     userId: botUser._id,
+                    whatsTimestamp: whatsapData?.timestamp,
                 };
 
                 aiResponse = await handleConversation(userData);
@@ -186,6 +191,7 @@ const sendMessageToWhatsApp = async (phoneNumber, aiResponse, botUser) => {
         );
     } catch (error) {
         console.error("Error sending message:", error?.response?.data || error?.message);
+        await handleConversation(error?.response?.data || error?.message)
     }
 };
 

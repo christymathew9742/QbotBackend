@@ -164,18 +164,20 @@ const generateAIResponse = async (prompt, userId, retries = 0) => {
             }
             
             return responseText;
-        } catch (error) {
-            console.error(`[${userId}] AI Error (attempt ${retries + 1}):`, error);
-            
+        }  catch (error) {
             if (error.status === 503 || error.status === 429) { 
                 const delayTime = RETRY_DELAY_MS * (retries + 1);
                 console.log(`[${userId}] Retrying in ${delayTime}ms...`);
                 await delay(delayTime);
                 return generateAIResponse(prompt, userId, retries + 1);
             }
-            
+        
+            if (error?.response?.promptFeedback?.blockReason === 'PROHIBITED_CONTENT') {
+                return "🙏 Sorry… I’m unable to reply to that message as it may contain restricted content. Could you rephrase it? 🙂";
+            }
             return "⚠️ I'm having trouble responding right now. Please try again later.";
         }
+        
     }, promptId);
 };
 

@@ -1,6 +1,7 @@
 const jsonBlockRegex = /```json\s*([\s\S]*?)\s*```/i;
 const trailingJsonRegex = /(?:\s*)({[\s\S]*}|\[[\s\S]*\])\s*$/;
 const jwt = require('jsonwebtoken');
+const AppointmentModal = require('../models/AppointmentModal')
 
 function cleanAIResponse(response) {
     if (typeof response !== 'string' || !response.trim()) return '';
@@ -131,7 +132,7 @@ const validateToken = (token) => {
 
     try {
         const decoded = jwt.verify(token, secretKey);
-        const now = Math.floor(Date.now() / 1000); // current time in seconds
+        const now = Math.floor(Date.now() / 1000); 
         const { exp, iat } = decoded;
 
         const totalLifespan = exp - iat;
@@ -201,33 +202,6 @@ const generateOtpEmailTemplate = (otp) => {
         </div>
     `;
 }
-
-// const parseChatHistory = (rawData)=> {
-//     return rawData.map(line => {
-//         const colonIndex = line.indexOf(':');
-        
-//         if (colonIndex === -1) {
-//             // No colon found, treat whole line as system message or fallback
-//             return {
-//                 sender: 'System',
-//                 message: line.trim()
-//             };
-//         }
-    
-//         const sender = line.slice(0, colonIndex).trim();
-//         const messageStr = line.slice(colonIndex + 1).trim();
-    
-//         let message;
-//         try {
-//             message = JSON.parse(messageStr); 
-//         } catch {
-//             message = messageStr;
-//         }
-    
-//         return { sender, message };
-//     });
-// }
-
 
 const parseChatHistory = (rawData) => {
     const parsed = [];
@@ -302,6 +276,34 @@ const parseChatHistory = (rawData) => {
     return parsed;
 };
 
+const fillMissingSentimentFields = (scores = {}) => ({
+    finalScore: scores.finalScore ?? 0,
+    speedScore: scores.speedScore ?? 0,
+    behaviourScore: scores.behaviourScore ?? 0,
+    sentimentScore: scores.sentimentScore ?? 0,
+    ...scores
+});
+
+const onWebhookEvent = async (whatsTimestamp, userPhone, userId) => {
+    if (!whatsTimestamp || !userPhone || !userId) throw new Error("Invalid inputs");
+  
+    const date = new Date(whatsTimestamp * 1000);
+    if (isNaN(date)) throw new Error("Invalid timestamp");
+  
+    const isoStringWithOffset = date.toISOString().replace('Z', '+00:00');
+  
+    await AppointmentModal.updateMany(
+        {
+            whatsAppNumber: userPhone,
+            user: userId,
+            $or: [
+                { lastActiveAt: { $exists: false } },
+                { lastActiveAt: { $lt: isoStringWithOffset } }
+            ]
+        },
+        { $set: { lastActiveAt: isoStringWithOffset } }
+    );
+};
 
 module.exports = {
     cleanAIResponse,
@@ -312,6 +314,8 @@ module.exports = {
     validateToken,
     generateOtpEmailTemplate,
     parseChatHistory,
+    fillMissingSentimentFields,
+    onWebhookEvent,
 };
   
 

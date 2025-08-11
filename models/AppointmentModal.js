@@ -44,8 +44,23 @@ const AppointmentSchema = new Schema(
             type: [MessageSchema],
             required: true,
         },
+        sentimentScores: {
+            sentimentScore: { type: Number },
+            behaviourScore: { type: Number },
+            speedScore: { type: Number },
+            finalScore: { type: Number },
+        },
+        sentimentScoresHistory: [{
+            sentimentScore: { type: Number, default: 0 },
+            behaviourScore: { type: Number, default: 0 },
+            speedScore: { type: Number, default: 0 },
+            finalScore: { type: Number, default: 0 },
+        }],
+        rescheduleCount: { type: Number, required: true },
         flowTitle: String,
         profileName: String,
+        lastActiveAt: String,
+        userCreated:String,
     },
     { timestamps: true }
 );

@@ -5,8 +5,8 @@ const appointmentService = require('../services/appointmentService')
 // Get all Appointments for the authenticated user
 const getAllAppointments = async (req, res, next) => {
     try {
-        const { page, limit, search, status, date } = req.query;
-        const appointments = await appointmentService.getAllAppointments(req.user.userId, page, limit, search, status, date);
+        const { page, limit, search, status, date, user } = req.query;
+        const appointments = await appointmentService.getAllAppointments(req.user.userId, page, limit, search, status, date, user);
         res.status(200).json({ success: true, ...appointments });
     } catch (error) {
         next(error);
