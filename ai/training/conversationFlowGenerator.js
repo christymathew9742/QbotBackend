@@ -87,6 +87,17 @@ const generateDynamicFlowData = (flowData) => {
     return { directTargets: direct, conditionalTargets: conditional };
   };
 
+  const sanitizeFieldName = (str) => {
+    if (!str) return;
+  
+    let clean = String(str);
+    clean = clean.replace(/<[^>]*>/g, '');
+    clean = clean.replace(/\b(?:javascript|data|vbscript):/gi, '');
+    clean = clean.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, '');
+    clean = clean.trim();
+    return clean;
+  };
+
   const processNode = (nodeId, visited = new Set()) => {
     if (visited.has(nodeId)) return;
     visited.add(nodeId);
@@ -127,14 +138,15 @@ const generateDynamicFlowData = (flowData) => {
             const matches = input?.value?.match(/\[([^\]]+)\]/g);
             if (matches) {
               matches.forEach(match => {
-                const fieldName = match?.replace(/[\[\]]/g, '');
-                if (!fieldNames?.includes(fieldName)) {
+                let fieldName = match?.replace(/[\[\]]/g, '');
+                fieldName = sanitizeFieldName(fieldName);
+      
+                if (fieldName && !fieldNames?.includes(fieldName)) {
                   fieldNames?.push(fieldName);
                 }
               });
             }
           }
-          // Check if this is a preference node
           if (input?.field === 'preference') {
             hasPreference = true;
           }

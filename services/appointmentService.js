@@ -1,44 +1,41 @@
 const  AppointmentModal = require('../models/AppointmentModal');
 const { errorResponse } = require('../utils/errorResponse');
 
+const currentYear = new Date().getFullYear();
+const currentMonth = new Date().getMonth() + 1;
+
 const getAllAppointments = async (
     userId,
     page = 1,
-    limit = 9,
+    limit = 1,
     search = '',
     status = null,
     date = null,
-    user = false,
+    user = false
 ) => {
     try {
         const filter = { user: userId };
         search = search.trim();
-
+    
         if (search) {
             filter.$or = [
                 { flowTitle: { $regex: search, $options: 'i' } },
                 { whatsAppNumber: { $regex: search, $options: 'i' } },
-                { profileName: { $regex: search, $options: 'i' } },
+                { profileName: { $regex: search, $options: 'i' } }
             ];
         }
-
-        if (status && status !== 'null') {
-            filter.status = status;
-        }
-
+  
+        if (status && status !== 'null') filter.status = status;
+  
         if (date && date !== 'null') {
             const selectedDate = new Date(date);
             const nextDate = new Date(selectedDate);
             nextDate.setDate(selectedDate.getDate() + 1);
-
-            filter.createdAt = {
-                $gte: selectedDate,
-                $lt: nextDate,
-            };
+            filter.createdAt = { $gte: selectedDate, $lt: nextDate };
         }
-
+  
         const skip = (page - 1) * limit;
-
+  
         const statusSortStage = {
             $addFields: {
                 sortStatus: {
@@ -49,18 +46,16 @@ const getAllAppointments = async (
                             { case: { $eq: ["$status", "completed"] }, then: 3 },
                             { case: { $eq: ["$status", "cancelled"] }, then: 4 }
                         ],
-                        default: 5
+                        default: 5,
                     }
                 }
             }
         };
-
-        let appointments, total;
-
+  
+        const basePipeline = [{ $match: filter }, statusSortStage];
+  
         if (user === 'true' || user === true) {
-            const pipeline = [
-                { $match: filter },
-                statusSortStage,
+            basePipeline.push (
                 { $sort: { sortStatus: 1, updatedAt: -1 } },
                 {
                     $group: {
@@ -68,71 +63,74 @@ const getAllAppointments = async (
                         doc: { $first: "$$ROOT" }
                     }
                 },
-                { $replaceRoot: { newRoot: "$doc" } },
-                { $sort: { sortStatus: 1, updatedAt: -1 } },
-                { $skip: skip },
-                { $limit: Number(limit) }
-            ];
-
-            const [appointmentsRes, countRes] = await Promise.all([
-                AppointmentModal.aggregate(pipeline),
-                AppointmentModal.aggregate([
-                    { $match: filter },
-                    { $group: { _id: "$whatsAppNumber" } },
-                    { $count: "total" }
-                ])
-            ]);
-
-            appointments = appointmentsRes;
-            total = countRes[0]?.total || 0;
-        } else {
-            const pipeline = [
-                { $match: filter },
-                statusSortStage,
-                { $sort: { sortStatus: 1, updatedAt: -1 } },
-                { $skip: skip },
-                { $limit: Number(limit) }
-            ];
-
-            const [appointmentsRes, totalRes] = await Promise.all([
-                AppointmentModal.aggregate(pipeline),
-                AppointmentModal.countDocuments(filter)
-            ]);
-
-            appointments = appointmentsRes;
-            total = totalRes;
+                { $replaceRoot: { newRoot: "$doc" } }
+            );
         }
-
-        // FIX: statusCounts to use same filter and always include 0 for missing statuses
-        const statusCountsRaw = await AppointmentModal.aggregate([
-            { $match: filter },
+  
+        basePipeline.push (
+            { $sort: { sortStatus: 1, updatedAt: -1 } },
+            { $skip: skip },
+            { $limit: Number(limit)}
+        );
+  
+        const [aggResult] = await AppointmentModal.aggregate ([
             {
-                $group: {
-                    _id: "$status",
-                    count: { $sum: 1 }
+                $facet: {
+                    data: basePipeline,
+                    totalCount: [
+                        { $match: filter },
+                        ...(user === 'true' || user === true
+                        ? [{ $group: { _id: "$whatsAppNumber" } }]
+                        : []),
+                        { $count: "total" }
+                    ],
+                    statusCounts: [
+                        { $match: filter },
+                        { $group: { _id: "$status", count: { $sum: 1 } } }
+                    ],
+                    sentimentScores: [
+                        { $match: filter },
+                        {
+                            $group: {
+                                _id: null,
+                                behaviourScore: { $avg: "$sentimentScores.behaviourScore" },
+                                sentimentScore: { $avg: "$sentimentScores.sentimentScore" },
+                                speedScore: { $avg: "$sentimentScores.speedScore" }
+                            }
+                        }
+                    ],
+                    completedCount: [
+                        { $match: { ...filter, status: "completed" } },
+                        { $count: "totalCompleted" }
+                    ],
                 }
             }
         ]);
-
+  
+        let appointments = aggResult.data || null;
+        const total = aggResult?.totalCount[0]?.total || 0;
+        const appointmentComplited = aggResult?.completedCount[0]?.totalCompleted || 0;
+    
         const totalStatusCounts = { completed: 0, cancelled: 0, rescheduled: 0, booked: 0 };
-        statusCountsRaw.forEach(item => {
+        aggResult.statusCounts.forEach(item => {
             if (totalStatusCounts.hasOwnProperty(item._id)) {
                 totalStatusCounts[item._id] = item.count;
             }
         });
-
-        // Per WhatsApp number history counts
+  
         const numbers = appointments.map(a => a.whatsAppNumber);
-        const historyCountsRaw = await AppointmentModal.aggregate([
+        const historyCountsRaw = numbers.length
+        ? await AppointmentModal.aggregate([
             { $match: { user: userId, whatsAppNumber: { $in: numbers } } },
             {
-                $group: {
-                    _id: { number: "$whatsAppNumber", status: "$status" },
-                    count: { $sum: 1 }
-                }
+              $group: {
+                _id: { number: "$whatsAppNumber", status: "$status" },
+                count: { $sum: 1 }
+              }
             }
-        ]);
-
+          ])
+        : [];
+  
         const historyMap = {};
         historyCountsRaw.forEach(item => {
             const number = item._id.number;
@@ -140,192 +138,291 @@ const getAllAppointments = async (
             if (!historyMap[number]) {
                 historyMap[number] = { completed: 0, cancelled: 0, rescheduled: 0, booked: 0 };
             }
-            historyMap[number][status] = item.count;
+                historyMap[number][status] = item.count;
         });
-
-        const dataWithHistory = appointments.map(app => {
+  
+        appointments = appointments.map(app => {
             const status = historyMap[app.whatsAppNumber] || { booked: 0, completed: 0, rescheduled: 0, cancelled: 0 };
-          
-            const booked = status.booked ?? 0;
-            const completed = status.completed ?? 0;
-            const rescheduled = status.rescheduled ?? 0;
-          
-            const totalAppointments = booked + completed + rescheduled;
-          
+            const totalAppointments = (status.booked ?? 0) + (status.completed ?? 0) + (status.rescheduled ?? 0);
+    
             let userType = 'Frequent';
-          
             if (totalAppointments === 0) userType = 'Inactive';
             else if (totalAppointments < 3) userType = 'New';
             else if (totalAppointments < 10) userType = 'Engaged';
-          
-            return {
-              ...app,
-              statusCounts: status,
-              userType,
-              totalAppointments,
-            };
+    
+            return { ...app, statusCounts: status, userType, totalAppointments };
         });
-          
-        const sentimentAppointments = await AppointmentModal.find(
-            filter,
-            {
-                "sentimentScores.behaviourScore": 1,
-                "sentimentScores.sentimentScore": 1,
-                "sentimentScores.speedScore": 1
-            }
-        ).lean();
-
-        const totalSentiments = sentimentAppointments.length || 1;
-
-        const sumBehaviour = sentimentAppointments.reduce((sum, a) => sum + (a.sentimentScores?.behaviourScore ?? 0), 0);
-        const sumSentiment = sentimentAppointments.reduce((sum, a) => sum + (a.sentimentScores?.sentimentScore ?? 0), 0);
-        const sumSpeed = sentimentAppointments.reduce((sum, a) => sum + (a.sentimentScores?.speedScore ?? 0), 0);
-
+  
+        const avgSentimentsRaw = aggResult.sentimentScores[0] || {};
         const averageSentimentScores = {
             sentimentScores: {
-                behaviourScore: Math.round(sumBehaviour / totalSentiments),
-                sentimentScore: Math.round(sumSentiment / totalSentiments),
-                speedScore: Math.round(sumSpeed / totalSentiments),
+                behaviourScore: Math.round(avgSentimentsRaw.behaviourScore || 0),
+                sentimentScore: Math.round(avgSentimentsRaw.sentimentScore || 0),
+                speedScore: Math.round(avgSentimentsRaw.speedScore || 0)
             }
         };
 
+        let generalData = {};
+
+        if (user !== 'true' && user !== true && limit == 1) {
+            const totalUserCound = await AppointmentModal.distinct("whatsAppNumber", { user: userId });
+            generalData.totalUniqueUsers = totalUserCound.length;
+
+            const totalActiveUsers = await AppointmentModal.distinct("whatsAppNumber", {
+                user: userId,
+                status: { $in: ["booked", "rescheduled"] }
+            });
+            generalData.activeUserCount = totalActiveUsers.length;
+
+            const avgGlobalSentiment = await AppointmentModal.aggregate([
+                { $match: { user: userId } },
+                {
+                    $group: {
+                        _id: null,
+                        behaviourScore: { $avg: "$sentimentScores.behaviourScore" },
+                        finalScore: { $avg: "$sentimentScores.finalScore" },
+                        sentimentScore: { $avg: "$sentimentScores.sentimentScore" },
+                        speedScore: { $avg: "$sentimentScores.speedScore" }
+                    }
+                }
+            ]);
+
+            generalData.globalAverageSentimentScores = avgGlobalSentiment.map(g => ({
+                behaviourScore: Math.round(g.behaviourScore || 0),
+                finalScore: Math.round(g.finalScore || 0),
+                sentimentScore: Math.round(g.sentimentScore || 0),
+                speedScore: Math.round(g.speedScore || 0)
+            }));
+
+            // Current year data
+            const currentYear = new Date().getFullYear();
+            const currentMonth = new Date().getMonth() + 1;
+
+            // Current year data
+            const monthlyDataRaw = await AppointmentModal.aggregate([
+                {
+                    $match: {
+                        user: userId,
+                        status: { $in: ["booked", "rescheduled", "completed"] },
+                        createdAt: {
+                            $gte: new Date(currentYear, 0, 1),
+                            $lt: new Date(currentYear + 1, 0, 1)
+                        }
+                    }
+                },
+                {
+                    $group: {
+                        _id: { month: { $month: "$createdAt" } },
+                        count: { $sum: 1 }
+                    }
+                },
+                { $sort: { "_id.month": 1 } }
+            ]);
+
+            // Map of current year counts
+            const monthCountMap = {};
+            monthlyDataRaw.forEach(m => {
+                monthCountMap[m._id.month] = m.count;
+            });
+
+            // Previous year data
+            const previousYearDataRaw = await AppointmentModal.aggregate([
+                {
+                    $match: {
+                        user: userId,
+                        status: { $in: ["booked", "rescheduled", "completed"] },
+                        createdAt: {
+                            $gte: new Date(currentYear - 1, 0, 1),
+                            $lt: new Date(currentYear, 0, 1)
+                        }
+                    }
+                },
+                {
+                    $group: {
+                        _id: { month: { $month: "$createdAt" } },
+                        count: { $sum: 1 }
+                    }
+                },
+                { $sort: { "_id.month": 1 } }
+            ]);
+
+            const previousYearData = {};
+            previousYearDataRaw.forEach(d => {
+                previousYearData[d._id.month] = d.count;
+            });
+
+            // Build finalMonthlyData (guarantee all months exist)
+            let finalMonthlyData = [];
+            for (let m = 1; m <= 12; m++) {
+                if (m < currentMonth) {
+                    // Past months → only use current year data or 0
+                    finalMonthlyData.push({
+                        month: m,
+                        count: monthCountMap[m] || 0
+                    });
+                } else if (m === currentMonth) {
+                    // Current month → current year, else previous year, else 0
+                    finalMonthlyData.push({
+                        month: m,
+                        count: monthCountMap[m] || previousYearData[m] || 0
+                    });
+                } else {
+                    // Future months → current year, else previous year, else 0
+                    finalMonthlyData.push({
+                        month: m,
+                        count: monthCountMap[m] || previousYearData[m] || 0
+                    });
+                }
+            }
+
+            generalData.monthlyAppointments = finalMonthlyData;
+
+            const startOfDay = new Date();
+            startOfDay.setHours(0, 0, 0, 0);
+            const endOfDay = new Date(startOfDay);
+            endOfDay.setDate(startOfDay.getDate() + 1);
+
+            generalData.todaysAppointments = await AppointmentModal.find({
+                user: userId,
+                status: { $in: ["booked", "rescheduled"] },
+                createdAt: { $gte: startOfDay, $lt: endOfDay }
+            });
+
+        }
+  
         return {
-            data: dataWithHistory,
-            total,
+            ...(limit > 1 && { data: appointments }),
+            totalBookings: total,
             page: Number(page),
             pages: Math.ceil(total / limit),
             totalStatusCounts,
             averageSentimentScores,
+            ...generalData,
+            appointmentComplited,
         };
-
+        
     } catch (error) {
         throw new Error(`Error fetching appointment: ${error.message}`);
     }
 };
-
+  
 // Getting a single Appointments by ID for a specific user
 const getAppointmentsById = async (id, userId) => {
     try {
-        const appointment = await AppointmentModal.findOne({ _id: id, user: userId });
+        const appointment = await AppointmentModal.findOne({ _id: id, user: userId }).lean();
         if (!appointment) {
             throw errorResponse('Appointment not found', 404);
         }
 
-        const whatsAppNumber = appointment.whatsAppNumber;
+        const { whatsAppNumber } = appointment;
 
-        const statusSummary = await AppointmentModal.aggregate([
+        const [result] = await AppointmentModal.aggregate([
             { $match: { whatsAppNumber, user: userId } },
             {
-                $group: {
-                    _id: "$status",
-                    count: { $sum: 1 }
+                $facet: {
+                    statusSummary: [
+                        { $group: { _id: "$status", count: { $sum: 1 } } }
+                    ],
+                    allAppointments: [
+                        {
+                            $addFields: {
+                                statusPriority: {
+                                    $switch: {
+                                        branches: [
+                                            { case: { $eq: ["$status", "booked"] }, then: 1 },
+                                            { case: { $eq: ["$status", "rescheduled"] }, then: 2 },
+                                            { case: { $eq: ["$status", "completed"] }, then: 3 },
+                                            { case: { $eq: ["$status", "cancelled"] }, then: 4 }
+                                        ],
+                                        default: 99
+                                    }
+                                }
+                            }
+                        },
+                        { $sort: { statusPriority: 1, updatedAt: -1 } },
+                        {
+                            $project: {
+                                status: 1,
+                                "sentimentScores.behaviourScore": 1,
+                                "sentimentScores.sentimentScore": 1,
+                                "sentimentScores.speedScore": 1,
+                                updatedAt: 1,
+                                flowTitle: 1,
+                                rescheduleCount: 1
+                            }
+                        }
+                    ],
+                    sentimentStats: [
+                        {
+                            $group: {
+                                _id: null,
+                                totalBehaviour: { $sum: { $ifNull: ["$sentimentScores.behaviourScore", 0] } },
+                                totalSentiment: { $sum: { $ifNull: ["$sentimentScores.sentimentScore", 0] } },
+                                totalSpeed: { $sum: { $ifNull: ["$sentimentScores.speedScore", 0] } },
+                                totalCount: { $sum: 1 }
+                            }
+                        }
+                    ],
+                    latest: [
+                        { $sort: { updatedAt: -1 } },
+                        { $limit: 1 },
+                        { $project: { status: 1, flowTitle: 1 } }
+                    ]
                 }
             }
         ]);
+
         const statusCounts = { completed: 0, cancelled: 0, rescheduled: 0, booked: 0 };
-        statusSummary.forEach(item => {
-            if (statusCounts.hasOwnProperty(item._id)) {
-                statusCounts[item._id] = item.count;
+        result.statusSummary.forEach(({ _id, count }) => {
+            if (statusCounts.hasOwnProperty(_id)) {
+                statusCounts[_id] = count;
             }
         });
-          
-        const booked = statusCounts.booked ?? 0;
-        const completed = statusCounts.completed ?? 0;
-        const rescheduled = statusCounts.rescheduled ?? 0;
-        const totalAppointments = booked + completed + rescheduled;
-        
+
+        const totalAppointments = statusCounts.booked + statusCounts.completed + statusCounts.rescheduled;
         let userType = 'Frequent';
-        
         if (totalAppointments === 0) userType = 'Inactive';
         else if (totalAppointments < 3) userType = 'New';
         else if (totalAppointments < 10) userType = 'Engaged';
-        
-        const allAppointments = await AppointmentModal.find(
-            { whatsAppNumber, user: userId },
-            {
-                status: 1,
-                "sentimentScores.behaviourScore": 1,
-                "sentimentScores.sentimentScore": 1,
-                "sentimentScores.speedScore": 1,
-                updatedAt: 1,
-                flowTitle: 1,
 
-            }
-        ).lean();
-
-        const statusPriority = {
-            booked: 1,
-            rescheduled: 2,
-            completed: 3,
-            cancelled: 4,
-        };
-        
-        allAppointments.sort((a, b) => {
-            const statusDiff = statusPriority[a.status] - statusPriority[b.status];
-            if (statusDiff !== 0) return statusDiff;
-            return new Date(b.updatedAt) - new Date(a.updatedAt);
-        });
-        
         const sentimentData = [];
         const statusCounters = {};
-        const rescheduleCount = '('+appointment?.rescheduleCount+')' || 0
-        allAppointments.forEach(appt => {
-            const status = appt.status;
-            if(status == 'rescheduled')  sentimentData.rescheduleCount = rescheduleCount;
-            
-            const buildSentimentScores = (appt) => ({
-                behaviourScore: appt.sentimentScores?.behaviourScore ?? 0,
-                sentimentScore: appt.sentimentScores?.sentimentScore ?? 0,
-                speedScore: appt.sentimentScores?.speedScore ?? 0,
-            });
-              
-            switch (status) {
-                case "rescheduled":
-                    sentimentData.push({
-                        status,
-                        rescheduleCount,
-                        sentimentScores: buildSentimentScores(appt),
-                    });
-                    break;
-              
-                case "booked":
-                    sentimentData.push({
-                        status,
-                        sentimentScores: buildSentimentScores(appt),
-                    });
-                    break;
-              
-                default:
-                    statusCounters[status] = (statusCounters[status] || 0) + 1;
-                    sentimentData.push({
-                        status: `${status}(${statusCounters[status]})`,
-                        sentimentScores: buildSentimentScores(appt),
-                    });
-                    break;
+        result.allAppointments.forEach(appt => {
+            const behaviourScore = appt.sentimentScores?.behaviourScore ?? 0;
+            const sentimentScore = appt.sentimentScores?.sentimentScore ?? 0;
+            const speedScore = appt.sentimentScores?.speedScore ?? 0;
+
+            if (appt.status === 'rescheduled') {
+                sentimentData.push({
+                    status: appt.status,
+                    rescheduleCount: `(${appt.rescheduleCount ?? 0})`,
+                    sentimentScores: { behaviourScore, sentimentScore, speedScore }
+                });
+            } else if (appt.status === 'booked') {
+                sentimentData.push({
+                    status: appt.status,
+                    sentimentScores: { behaviourScore, sentimentScore, speedScore }
+                });
+            } else {
+                statusCounters[appt.status] = (statusCounters[appt.status] || 0) + 1;
+                sentimentData.push({
+                    status: `${appt.status}(${statusCounters[appt.status]})`,
+                    sentimentScores: { behaviourScore, sentimentScore, speedScore }
+                });
             }
-              
         });
 
-        const total = allAppointments.length || 1;
-        const sumBehaviour = allAppointments.reduce((sum, a) => sum + (a.sentimentScores?.behaviourScore ?? 0), 0);
-        const sumSentiment = allAppointments.reduce((sum, a) => sum + (a.sentimentScores?.sentimentScore ?? 0), 0);
-        const sumSpeed = allAppointments.reduce((sum, a) => sum + (a.sentimentScores?.speedScore ?? 0), 0);
-
+        const stats = result.sentimentStats[0] || { totalBehaviour: 0, totalSentiment: 0, totalSpeed: 0, totalCount: 1 };
         const averageSentimentScores = {
             sentimentScores: {
-                behaviourScore: Math.round(sumBehaviour / total),
-                sentimentScore: Math.round(sumSentiment / total),
-                speedScore: Math.round(sumSpeed / total),
+                behaviourScore: Math.round(stats.totalBehaviour / stats.totalCount),
+                sentimentScore: Math.round(stats.totalSentiment / stats.totalCount),
+                speedScore: Math.round(stats.totalSpeed / stats.totalCount)
             }
         };
 
-        const latestAppointment = allAppointments.reduce((latest, appt) => {
-            if (!latest) return appt;
-            return new Date(appt.updatedAt) > new Date(latest.updatedAt) ? appt : latest;
-        }, null);
-        
-        const latestStatus = latestAppointment?.status || null;
-        const latestFlowTitle = latestAppointment?.flowTitle || null;
+        const latestStatus = result.latest[0]?.status || null;
+        const latestFlowTitle = result.latest[0]?.flowTitle || null;
 
         return {
             appointment,
