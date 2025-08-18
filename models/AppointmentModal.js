@@ -59,8 +59,18 @@ const AppointmentSchema = new Schema(
         rescheduleCount: { type: Number, required: true },
         flowTitle: String,
         profileName: String,
-        lastActiveAt: String,
-        userCreated:String,
+        lastActiveAt: {
+            type: Date, 
+            default: Date.now,
+        },
+        userCreated: {
+            type: Date, 
+            default: Date.now,
+        },
+        lastUpdatedAt: {
+            type: Date, 
+            default: Date.now,
+        }
     },
     { timestamps: true }
 );

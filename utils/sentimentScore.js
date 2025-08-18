@@ -103,7 +103,7 @@ const getSentimentScore = async (chatHistory, userSender = 'Consultant') => {
     const avg = total / userMessages.length;
     const scaled = Math.max(0, Math.min(10, (avg + 1) * 5));
 
-    return Math.round(scaled);
+    return parseFloat(scaled.toFixed(1));
 };
 
 // ---------------------- BEHAVIOUR SCORE ---------------------- 
@@ -133,7 +133,7 @@ const getBehaviourScore = async (
         (cancelled / total) * WEIGHTS.cancelled;
     const confidenceFactor = Math.min(1, total / MIN_APPOINTMENTS_FOR_FULL_CONFIDENCE);
     const adjustedScore = rawScore * confidenceFactor + (5 * (1 - confidenceFactor));
-    return Math.round(Math.min(10, Math.max(0, adjustedScore)));
+    return parseFloat(Math.min(10, Math.max(0, adjustedScore.toFixed(1))));
 };
   
 // ---------------------- RESPONSE SPEED SCORE ----------------------
@@ -162,7 +162,7 @@ const getResponseSpeedScore = async (chatHistory, aiSender = 'AI', userSender = 
     if (avgDelaySec >= 60) return 0;
     const score = 10 - (avgDelaySec - 10) / 5;
 
-    return Math.round(Math.max(0, score));
+    return parseFloat(Math.max(0, score.toFixed(1)));
 };
 
 // ---------------------- FINAL SCORE ----------------------
@@ -201,7 +201,7 @@ const getFinalSentimentScore = async (chatHistory, numbers, userId) => {
         const sentimentScore = await getSentimentScore(relevantChats, 'Consultant') || 0;
         const behaviourScore = await getBehaviourScore(historyCounts[originalNum] || {}, userId, numbers) || 0;
         const speedScore = await getResponseSpeedScore(relevantChats, 'AI', 'Consultant') || 0;
-        const finalScore = Math.round(sentimentScore * 0.4 + behaviourScore * 0.4 + speedScore * 0.2) || 0;
+        const finalScore = parseFloat((sentimentScore * 0.4 + behaviourScore * 0.4 + speedScore * 0.2).toFixed(1)) || 0;
 
         scoreMap[originalNum] = {
             sentimentScore,

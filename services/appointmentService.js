@@ -56,7 +56,7 @@ const getAllAppointments = async (
   
         if (user === 'true' || user === true) {
             basePipeline.push (
-                { $sort: { sortStatus: 1, updatedAt: -1 } },
+                { $sort: { sortStatus: 1, lastUpdatedAt: -1 } },
                 {
                     $group: {
                         _id: "$whatsAppNumber",
@@ -68,7 +68,7 @@ const getAllAppointments = async (
         }
   
         basePipeline.push (
-            { $sort: { sortStatus: 1, updatedAt: -1 } },
+            { $sort: { sortStatus: 1, lastUpdatedAt: -1 } },
             { $skip: skip },
             { $limit: Number(limit)}
         );
@@ -96,6 +96,17 @@ const getAllAppointments = async (
                                 behaviourScore: { $avg: "$sentimentScores.behaviourScore" },
                                 sentimentScore: { $avg: "$sentimentScores.sentimentScore" },
                                 speedScore: { $avg: "$sentimentScores.speedScore" }
+                            }
+                        }
+                    ],
+                    sentimentStats: [
+                        {
+                            $group: {
+                                _id: null,
+                                totalBehaviour: { $sum: { $ifNull: ["$sentimentScores.behaviourScore", 0] } },
+                                totalSentiment: { $sum: { $ifNull: ["$sentimentScores.sentimentScore", 0] } },
+                                totalSpeed: { $sum: { $ifNull: ["$sentimentScores.speedScore", 0] } },
+                                totalCount: { $sum: 1 }
                             }
                         }
                     ],
@@ -140,27 +151,51 @@ const getAllAppointments = async (
             }
                 historyMap[number][status] = item.count;
         });
-  
+
+        const sentimentPerNumber = await AppointmentModal.aggregate([
+            { $match: { user: userId } },
+            {
+                $group: {
+                    _id: "$whatsAppNumber",
+                    totalBehaviour: { $sum: { $ifNull: ["$sentimentScores.behaviourScore", 0] } },
+                    totalSentiment: { $sum: { $ifNull: ["$sentimentScores.sentimentScore", 0] } },
+                    totalSpeed: { $sum: { $ifNull: ["$sentimentScores.speedScore", 0] } },
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    whatsAppNumber: "$_id",
+                    behaviourScore: { $divide: ["$totalBehaviour", "$count"] },
+                    sentimentScore: { $divide: ["$totalSentiment", "$count"] },
+                    speedScore: { $divide: ["$totalSpeed", "$count"] }
+                }
+            }
+        ]);
+          
+        const sentimentMap = sentimentPerNumber.reduce((acc, s) => {
+            acc[s.whatsAppNumber] = {
+                behaviourScore: parseFloat(s.behaviourScore.toFixed(1)),
+                sentimentScore: parseFloat(s.sentimentScore.toFixed(1)),
+                speedScore: parseFloat(s.speedScore.toFixed(1)),
+            };
+            return acc;
+        }, {})
+          
         appointments = appointments.map(app => {
             const status = historyMap[app.whatsAppNumber] || { booked: 0, completed: 0, rescheduled: 0, cancelled: 0 };
             const totalAppointments = (status.booked ?? 0) + (status.completed ?? 0) + (status.rescheduled ?? 0);
-    
+            const avgSentimentScores = sentimentMap[app.whatsAppNumber] || { behaviourScore: 0, sentimentScore: 0, speedScore: 0 }
+            
             let userType = 'Frequent';
             if (totalAppointments === 0) userType = 'Inactive';
             else if (totalAppointments < 3) userType = 'New';
             else if (totalAppointments < 10) userType = 'Engaged';
-    
-            return { ...app, statusCounts: status, userType, totalAppointments };
+            
+            return { ...app, statusCounts: status, userType, totalAppointments, avgSentimentScores };
         });
   
-        const avgSentimentsRaw = aggResult.sentimentScores[0] || {};
-        const averageSentimentScores = {
-            sentimentScores: {
-                behaviourScore: Math.round(avgSentimentsRaw.behaviourScore || 0),
-                sentimentScore: Math.round(avgSentimentsRaw.sentimentScore || 0),
-                speedScore: Math.round(avgSentimentsRaw.speedScore || 0)
-            }
-        };
 
         let generalData = {};
 
@@ -188,17 +223,15 @@ const getAllAppointments = async (
             ]);
 
             generalData.globalAverageSentimentScores = avgGlobalSentiment.map(g => ({
-                behaviourScore: Math.round(g.behaviourScore || 0),
-                finalScore: Math.round(g.finalScore || 0),
-                sentimentScore: Math.round(g.sentimentScore || 0),
-                speedScore: Math.round(g.speedScore || 0)
+                behaviourScore: parseFloat(g.behaviourScore.toFixed(1) || 0),
+                finalScore: parseFloat(g.finalScore.toFixed(1) || 0),
+                sentimentScore: parseFloat(g.sentimentScore.toFixed(1) || 0),
+                speedScore: parseFloat(g.speedScore.toFixed(1) || 0)
             }));
 
-            // Current year data
             const currentYear = new Date().getFullYear();
             const currentMonth = new Date().getMonth() + 1;
 
-            // Current year data
             const monthlyDataRaw = await AppointmentModal.aggregate([
                 {
                     $match: {
@@ -277,17 +310,40 @@ const getAllAppointments = async (
 
             generalData.monthlyAppointments = finalMonthlyData;
 
+
             const startOfDay = new Date();
             startOfDay.setHours(0, 0, 0, 0);
-            const endOfDay = new Date(startOfDay);
-            endOfDay.setDate(startOfDay.getDate() + 1);
 
-            generalData.todaysAppointments = await AppointmentModal.find({
+            const endOfDay = new Date();
+            endOfDay.setHours(23, 59, 59, 999);
+
+            const totalAppointments = await AppointmentModal.find({
+                user: userId,
+                status: { $in: ["booked", "rescheduled"] },
+            });
+            generalData.totalAppointments = totalAppointments.length;
+
+            const todaysAppointments = await AppointmentModal.countDocuments({
                 user: userId,
                 status: { $in: ["booked", "rescheduled"] },
                 createdAt: { $gte: startOfDay, $lt: endOfDay }
             });
+            generalData.todaysAppointments = todaysAppointments;
 
+            const todaysCompletedAppointments = await AppointmentModal.countDocuments({
+                user: userId,
+                status: "completed",
+                lastUpdatedAt: { $gte: startOfDay, $lt: endOfDay }
+            });
+            generalData.todaysCompletedAppointments = todaysCompletedAppointments;
+
+            const todaysCancelledAppointments = await AppointmentModal.countDocuments({
+                user: userId,
+                status: "cancelled",
+                lastUpdatedAt: { $gte: startOfDay, $lt: endOfDay }
+            });
+
+            generalData.todaysCancelledAppointments = todaysCancelledAppointments;
         }
   
         return {
@@ -296,7 +352,6 @@ const getAllAppointments = async (
             page: Number(page),
             pages: Math.ceil(total / limit),
             totalStatusCounts,
-            averageSentimentScores,
             ...generalData,
             appointmentComplited,
         };
@@ -339,14 +394,14 @@ const getAppointmentsById = async (id, userId) => {
                                 }
                             }
                         },
-                        { $sort: { statusPriority: 1, updatedAt: -1 } },
+                        { $sort: { statusPriority: 1, lastUpdatedAt: -1 } },
                         {
                             $project: {
                                 status: 1,
                                 "sentimentScores.behaviourScore": 1,
                                 "sentimentScores.sentimentScore": 1,
                                 "sentimentScores.speedScore": 1,
-                                updatedAt: 1,
+                                lastUpdatedAt: 1,
                                 flowTitle: 1,
                                 rescheduleCount: 1
                             }
@@ -364,7 +419,7 @@ const getAppointmentsById = async (id, userId) => {
                         }
                     ],
                     latest: [
-                        { $sort: { updatedAt: -1 } },
+                        { $sort: { lastUpdatedAt: -1 } },
                         { $limit: 1 },
                         { $project: { status: 1, flowTitle: 1 } }
                     ]
@@ -415,9 +470,9 @@ const getAppointmentsById = async (id, userId) => {
         const stats = result.sentimentStats[0] || { totalBehaviour: 0, totalSentiment: 0, totalSpeed: 0, totalCount: 1 };
         const averageSentimentScores = {
             sentimentScores: {
-                behaviourScore: Math.round(stats.totalBehaviour / stats.totalCount),
-                sentimentScore: Math.round(stats.totalSentiment / stats.totalCount),
-                speedScore: Math.round(stats.totalSpeed / stats.totalCount)
+                behaviourScore: parseFloat((stats.totalBehaviour / stats.totalCount).toFixed(1)) || 0,
+                sentimentScore: parseFloat((stats.totalSentiment / stats.totalCount).toFixed(1)) || 0,
+                speedScore: parseFloat((stats.totalSpeed / stats.totalCount).toFixed(1)) || 0
             }
         };
 
