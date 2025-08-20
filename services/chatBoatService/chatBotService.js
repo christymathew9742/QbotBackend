@@ -30,8 +30,8 @@ const getAllChatBot = async (userId, page = 1, limit = 10, search = '', status =
             filter.title = { $regex: search, $options: 'i' };
         }
     
-        if (status && status !== 'null') {
-            filter.status = status === 'true';
+        if (status && status !== '') {
+            filter.status = status === 'enabled';
         }
     
         const skip = (page - 1) * limit;

@@ -4,360 +4,730 @@ const { errorResponse } = require('../utils/errorResponse');
 const currentYear = new Date().getFullYear();
 const currentMonth = new Date().getMonth() + 1;
 
+// const getAllAppointments = async (
+//     userId,
+//     page = 1,
+//     limit= 6 ,
+//     search = '',
+//     status = null,
+//     date = null,
+//     user = false
+// ) => {
+//     try {
+//         const filter = { user: userId };
+//         search = search.trim();
+    
+//         if (search) {
+//             filter.$or = [
+//                 { flowTitle: { $regex: search, $options: 'i' } },
+//                 { whatsAppNumber: { $regex: search, $options: 'i' } },
+//                 { profileName: { $regex: search, $options: 'i' } }
+//             ];
+//         }
+  
+//         if (status && status !== 'null') filter.status = status;
+  
+//         if (date && date !== 'null') {
+//             const selectedDate = new Date(date);
+//             const nextDate = new Date(selectedDate);
+//             nextDate.setDate(selectedDate.getDate() + 1);
+//             filter.createdAt = { $gte: selectedDate, $lt: nextDate };
+//         }
+  
+//         const skip = (page - 1) * limit;
+//   console.log(limit, 'limit')   
+//         const statusSortStage = {
+//             $addFields: {
+//                 sortStatus: {
+//                     $switch: {
+//                         branches: [
+//                             { case: { $eq: ["$status", "booked"] }, then: 1 },
+//                             { case: { $eq: ["$status", "rescheduled"] }, then: 2 },
+//                             { case: { $eq: ["$status", "completed"] }, then: 3 },
+//                             { case: { $eq: ["$status", "cancelled"] }, then: 4 }
+//                         ],
+//                         default: 5,
+//                     }
+//                 }
+//             }
+//         };
+  
+//         const basePipeline = [{ $match: filter }, statusSortStage];
+//         const globalePipeline = [{ $match: filter }, statusSortStage];
+  
+//         if (user === 'true' || user === true) {
+//             basePipeline.push (
+//                 { $sort: { sortStatus: 1, lastUpdatedAt: -1 } },
+//                 {
+//                     $group: {
+//                         _id: "$whatsAppNumber",
+//                         doc: { $first: "$$ROOT" }
+//                     }
+//                 },
+//                 { $replaceRoot: { newRoot: "$doc" } }
+//             );
+//         }
+  
+//         basePipeline.push (
+//             { $sort: { sortStatus: 1, lastUpdatedAt: -1 } },
+//             { $skip: skip },
+//             { $limit: Number(limit)}
+//         );
+
+//         globalePipeline.push (
+//             { $sort: { sortStatus: 1, lastUpdatedAt: -1 } },
+//             { $skip: skip },
+//         );
+
+//         const [aggResult] = await AppointmentModal.aggregate ([
+//             {
+//                 $facet: {
+//                     data: basePipeline,
+//                     globaleData: globalePipeline,
+//                     totalCount: [
+//                         { $match: filter },
+//                         ...(user === 'true' || user === true
+//                         ? [{ $group: { _id: "$whatsAppNumber" } }]
+//                         : []),
+//                         { $count: "total" }
+//                     ],
+//                     statusCounts: [
+//                         { $match: filter },
+//                         { $group: { _id: "$status", count: { $sum: 1 } } }
+//                     ],
+//                     sentimentScores: [
+//                         { $match: filter },
+//                         {
+//                             $group: {
+//                                 _id: null,
+//                                 behaviourScore: { $avg: "$sentimentScores.behaviourScore" },
+//                                 sentimentScore: { $avg: "$sentimentScores.sentimentScore" },
+//                                 speedScore: { $avg: "$sentimentScores.speedScore" }
+//                             }
+//                         }
+//                     ],
+//                     sentimentStats: [
+//                         {
+//                             $group: {
+//                                 _id: null,
+//                                 totalBehaviour: { $sum: { $ifNull: ["$sentimentScores.behaviourScore", 0] } },
+//                                 totalSentiment: { $sum: { $ifNull: ["$sentimentScores.sentimentScore", 0] } },
+//                                 totalSpeed: { $sum: { $ifNull: ["$sentimentScores.speedScore", 0] } },
+//                                 totalCount: { $sum: 1 }
+//                             }
+//                         }
+//                     ],
+//                     completedCount: [
+//                         { $match: { ...filter, status: "completed" } },
+//                         { $count: "totalCompleted" }
+//                     ],
+//                 }
+//             }
+//         ]);
+  
+//         let appointments = aggResult.data || null;
+//         let globaleAppointments = aggResult.globaleData || null;
+//         const total = aggResult?.totalCount[0]?.total || 0;
+//         const appointmentComplited = aggResult?.completedCount[0]?.totalCompleted || 0;
+    
+//         const totalStatusCounts = { completed: 0, cancelled: 0, rescheduled: 0, booked: 0 };
+//         aggResult.statusCounts.forEach(item => {
+//             if (totalStatusCounts.hasOwnProperty(item._id)) {
+//                 totalStatusCounts[item._id] = item.count;
+//             }
+//         });
+  
+//         const numbers = appointments.map(a => a.whatsAppNumber);
+//         const historyCountsRaw = numbers.length
+//         ? await AppointmentModal.aggregate([
+//             { $match: { user: userId, whatsAppNumber: { $in: numbers } } },
+//             {
+//               $group: {
+//                 _id: { number: "$whatsAppNumber", status: "$status" },
+//                 count: { $sum: 1 }
+//               }
+//             }
+//           ])
+//         : [];
+  
+//         const historyMap = {};
+//         historyCountsRaw.forEach(item => {
+//             const number = item._id.number;
+//             const status = item._id.status;
+//             if (!historyMap[number]) {
+//                 historyMap[number] = { completed: 0, cancelled: 0, rescheduled: 0, booked: 0 };
+//             }
+//                 historyMap[number][status] = item.count;
+//         });
+
+//         const sentimentPerNumber = await AppointmentModal.aggregate([
+//             { $match: { user: userId } },
+//             {
+//                 $group: {
+//                     _id: "$whatsAppNumber",
+//                     totalBehaviour: { $sum: { $ifNull: ["$sentimentScores.behaviourScore", 0] } },
+//                     totalSentiment: { $sum: { $ifNull: ["$sentimentScores.sentimentScore", 0] } },
+//                     totalSpeed: { $sum: { $ifNull: ["$sentimentScores.speedScore", 0] } },
+//                     count: { $sum: 1 }
+//                 }
+//             },
+//             {
+//                 $project: {
+//                     _id: 0,
+//                     whatsAppNumber: "$_id",
+//                     behaviourScore: { $divide: ["$totalBehaviour", "$count"] },
+//                     sentimentScore: { $divide: ["$totalSentiment", "$count"] },
+//                     speedScore: { $divide: ["$totalSpeed", "$count"] }
+//                 }
+//             }
+//         ]);
+          
+//         const sentimentMap = sentimentPerNumber.reduce((acc, s) => {
+//             acc[s.whatsAppNumber] = {
+//                 behaviourScore: parseFloat(s.behaviourScore.toFixed(1)),
+//                 sentimentScore: parseFloat(s.sentimentScore.toFixed(1)),
+//                 speedScore: parseFloat(s.speedScore.toFixed(1)),
+//             };
+//             return acc;
+//         }, {})
+          
+//         appointments = appointments.map(app => {
+//             const status = historyMap[app.whatsAppNumber] || { booked: 0, completed: 0, rescheduled: 0, cancelled: 0 };
+//             const totalAppointments = (status.booked ?? 0) + (status.completed ?? 0) + (status.rescheduled ?? 0);
+//             const avgSentimentScores = sentimentMap[app.whatsAppNumber] || { behaviourScore: 0, sentimentScore: 0, speedScore: 0 }
+            
+//             let userType = 'Frequent';
+//             if (totalAppointments === 0) userType = 'Inactive';
+//             else if (totalAppointments < 3) userType = 'New';
+//             else if (totalAppointments < 10) userType = 'Engaged';
+            
+//             return { ...app, statusCounts: status, userType, totalAppointments, avgSentimentScores };
+//         });
+
+//         const DAY_LIMIT = 30; 
+//         const now = new Date();
+
+        // const notification = globaleAppointments
+        // .filter(app => {
+        //     const appDate = new Date(app.createdAt);
+        //     const diffDays = (now - appDate) / (1000 * 60 * 60 * 24);
+
+        //     const isWithinDays = diffDays <= DAY_LIMIT;
+        //     const isValidUser = app.user && app.whatsAppNumber;
+
+        //     return isWithinDays && isValidUser;
+        // })
+        // .map(app => {
+        //     return {
+        //     statusCounts: app?.statusCounts || {
+        //         booked: 0,
+        //         completed: 0,
+        //         rescheduled: 0,
+        //         cancelled: 0
+        //     },
+        //     userType: app?.userType || "Inactive",
+        //     totalAppointments: app?.totalAppointments || 0,
+        //     avgSentimentScores: app?.avgSentimentScores || {
+        //         behaviourScore: 0,
+        //         sentimentScore: 0,
+        //         speedScore: 0
+        //     },
+        //     profileName: app?.profileName || "Unknown",
+        //     flowTitle: app?.flowTitle || "Unknown", 
+        //     lastActiveAt: app?.lastActiveAt || new Date(),
+        //     userId: app?.user || userId,
+        //     whatsAppNumber: app?.whatsAppNumber || "Unknown",
+        // }});
+
+//         let generalData = {};
+
+//         if (user !== 'true' && user !== true ) {
+//             const totalUserCound = await AppointmentModal.distinct("whatsAppNumber", { user: userId });
+//             generalData.totalUniqueUsers = totalUserCound.length;
+
+//             const totalActiveUsers = await AppointmentModal.distinct("whatsAppNumber", {
+//                 user: userId,
+//                 status: { $in: ["booked", "rescheduled"] }
+//             });
+//             generalData.activeUserCount = totalActiveUsers.length;
+
+//             const avgGlobalSentiment = await AppointmentModal.aggregate([
+//                 { $match: { user: userId } },
+//                 {
+//                     $group: {
+//                         _id: null,
+//                         behaviourScore: { $avg: "$sentimentScores.behaviourScore" },
+//                         finalScore: { $avg: "$sentimentScores.finalScore" },
+//                         sentimentScore: { $avg: "$sentimentScores.sentimentScore" },
+//                         speedScore: { $avg: "$sentimentScores.speedScore" }
+//                     }
+//                 }
+//             ]);
+
+//             generalData.globalAverageSentimentScores = avgGlobalSentiment.map(g => ({
+//                 behaviourScore: parseFloat(g.behaviourScore.toFixed(1) || 0),
+//                 finalScore: parseFloat(g.finalScore.toFixed(1) || 0),
+//                 sentimentScore: parseFloat(g.sentimentScore.toFixed(1) || 0),
+//                 speedScore: parseFloat(g.speedScore.toFixed(1) || 0)
+//             }));
+
+//             const currentYear = new Date().getFullYear();
+//             const currentMonth = new Date().getMonth() + 1;
+
+//             const monthlyDataRaw = await AppointmentModal.aggregate([
+//                 {
+//                     $match: {
+//                         user: userId,
+//                         status: { $in: ["booked", "rescheduled", "completed"] },
+//                         createdAt: {
+//                             $gte: new Date(currentYear, 0, 1),
+//                             $lt: new Date(currentYear + 1, 0, 1)
+//                         }
+//                     }
+//                 },
+//                 {
+//                     $group: {
+//                         _id: { month: { $month: "$createdAt" } },
+//                         count: { $sum: 1 }
+//                     }
+//                 },
+//                 { $sort: { "_id.month": 1 } }
+//             ]);
+
+//             // Map of current year counts
+//             const monthCountMap = {};
+//             monthlyDataRaw.forEach(m => {
+//                 monthCountMap[m._id.month] = m.count;
+//             });
+
+//             // Previous year data
+//             const previousYearDataRaw = await AppointmentModal.aggregate([
+//                 {
+//                     $match: {
+//                         user: userId,
+//                         status: { $in: ["booked", "rescheduled", "completed"] },
+//                         createdAt: {
+//                             $gte: new Date(currentYear - 1, 0, 1),
+//                             $lt: new Date(currentYear, 0, 1)
+//                         }
+//                     }
+//                 },
+//                 {
+//                     $group: {
+//                         _id: { month: { $month: "$createdAt" } },
+//                         count: { $sum: 1 }
+//                     }
+//                 },
+//                 { $sort: { "_id.month": 1 } }
+//             ]);
+
+//             const previousYearData = {};
+//             previousYearDataRaw.forEach(d => {
+//                 previousYearData[d._id.month] = d.count;
+//             });
+
+//             // Build finalMonthlyData (guarantee all months exist)
+//             let finalMonthlyData = [];
+//             for (let m = 1; m <= 12; m++) {
+//                 if (m < currentMonth) {
+//                     // Past months → only use current year data or 0
+//                     finalMonthlyData.push({
+//                         month: m,
+//                         count: monthCountMap[m] || 0
+//                     });
+//                 } else if (m === currentMonth) {
+//                     // Current month → current year, else previous year, else 0
+//                     finalMonthlyData.push({
+//                         month: m,
+//                         count: monthCountMap[m] || previousYearData[m] || 0
+//                     });
+//                 } else {
+//                     // Future months → current year, else previous year, else 0
+//                     finalMonthlyData.push({
+//                         month: m,
+//                         count: monthCountMap[m] || previousYearData[m] || 0
+//                     });
+//                 }
+//             }
+
+//             generalData.monthlyAppointments = finalMonthlyData;
+
+
+//             const startOfDay = new Date();
+//             startOfDay.setHours(0, 0, 0, 0);
+
+//             const endOfDay = new Date();
+//             endOfDay.setHours(23, 59, 59, 999);
+
+//             const totalAppointments = await AppointmentModal.find({
+//                 user: userId,
+//                 status: { $in: ["booked", "rescheduled"] },
+//             });
+//             generalData.totalAppointments = totalAppointments.length;
+
+//             const todaysAppointments = await AppointmentModal.countDocuments({
+//                 user: userId,
+//                 status: { $in: ["booked", "rescheduled"] },
+//                 createdAt: { $gte: startOfDay, $lt: endOfDay }
+//             });
+//             generalData.todaysAppointments = todaysAppointments;
+
+//             const todaysCompletedAppointments = await AppointmentModal.countDocuments({
+//                 user: userId,
+//                 status: "completed",
+//                 lastUpdatedAt: { $gte: startOfDay, $lt: endOfDay }
+//             });
+//             generalData.todaysCompletedAppointments = todaysCompletedAppointments;
+
+//             const todaysCancelledAppointments = await AppointmentModal.countDocuments({
+//                 user: userId,
+//                 status: "cancelled",
+//                 lastUpdatedAt: { $gte: startOfDay, $lt: endOfDay }
+//             });
+
+//             generalData.todaysCancelledAppointments = todaysCancelledAppointments;
+//         }
+
+//         return {
+//             data: appointments,
+//             totalBookings: total,
+//             page: Number(page),
+//             pages: Math.ceil(total / limit),
+//             totalStatusCounts,
+//             ...generalData,
+//             appointmentComplited,
+//             notification,
+//         };
+        
+//     } catch (error) {
+//         throw new Error(`Error fetching appointment: ${error.message}`);
+//     }
+// };
+
 const getAllAppointments = async (
     userId,
     page = 1,
-    limit = 1,
+    limit = 6,
     search = '',
     status = null,
     date = null,
     user = false
 ) => {
     try {
-        const filter = { user: userId };
-        search = search.trim();
-    
-        if (search) {
-            filter.$or = [
-                { flowTitle: { $regex: search, $options: 'i' } },
-                { whatsAppNumber: { $regex: search, $options: 'i' } },
-                { profileName: { $regex: search, $options: 'i' } }
-            ];
-        }
+      // ---------- FILTERS ----------
+      const filter = { user: userId };
+      if (search?.trim()) {
+        filter.$or = [
+          { flowTitle: { $regex: search, $options: 'i' } },
+          { whatsAppNumber: { $regex: search, $options: 'i' } },
+          { profileName: { $regex: search, $options: 'i' } }
+        ];
+      }
+      if (status && status !== 'null') filter.status = status;
+      if (date && date !== 'null') {
+        const selectedDate = new Date(date);
+        const nextDate = new Date(selectedDate);
+        nextDate.setDate(selectedDate.getDate() + 1);
+        filter.createdAt = { $gte: selectedDate, $lt: nextDate };
+      }
   
-        if (status && status !== 'null') filter.status = status;
+      const skip = (page - 1) * limit;
   
-        if (date && date !== 'null') {
-            const selectedDate = new Date(date);
-            const nextDate = new Date(selectedDate);
-            nextDate.setDate(selectedDate.getDate() + 1);
-            filter.createdAt = { $gte: selectedDate, $lt: nextDate };
-        }
-  
-        const skip = (page - 1) * limit;
-  
-        const statusSortStage = {
-            $addFields: {
-                sortStatus: {
-                    $switch: {
-                        branches: [
-                            { case: { $eq: ["$status", "booked"] }, then: 1 },
-                            { case: { $eq: ["$status", "rescheduled"] }, then: 2 },
-                            { case: { $eq: ["$status", "completed"] }, then: 3 },
-                            { case: { $eq: ["$status", "cancelled"] }, then: 4 }
-                        ],
-                        default: 5,
-                    }
-                }
+      // ---------- SORTING ----------
+      const statusSortStage = {
+        $addFields: {
+          sortStatus: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$status", "booked"] }, then: 1 },
+                { case: { $eq: ["$status", "rescheduled"] }, then: 2 },
+                { case: { $eq: ["$status", "completed"] }, then: 3 },
+                { case: { $eq: ["$status", "cancelled"] }, then: 4 }
+              ],
+              default: 5,
             }
-        };
-  
-        const basePipeline = [{ $match: filter }, statusSortStage];
-  
-        if (user === 'true' || user === true) {
-            basePipeline.push (
-                { $sort: { sortStatus: 1, lastUpdatedAt: -1 } },
-                {
-                    $group: {
-                        _id: "$whatsAppNumber",
-                        doc: { $first: "$$ROOT" }
-                    }
-                },
-                { $replaceRoot: { newRoot: "$doc" } }
-            );
+          }
         }
+      };
   
-        basePipeline.push (
+      // ---------- PIPELINES ----------
+      const basePipeline = [{ $match: filter }, statusSortStage];
+      const globalePipeline = [{ $match: filter }, statusSortStage];
+  
+      if (user === 'true' || user === true) {
+        basePipeline.push(
+          { $sort: { sortStatus: 1, lastUpdatedAt: -1 } },
+          { $group: { _id: "$whatsAppNumber", doc: { $first: "$$ROOT" } } },
+          { $replaceRoot: { newRoot: "$doc" } }
+        );
+      }
+  
+        basePipeline.push(
             { $sort: { sortStatus: 1, lastUpdatedAt: -1 } },
             { $skip: skip },
-            { $limit: Number(limit)}
+            { $limit: Number(limit) }
         );
   
-        const [aggResult] = await AppointmentModal.aggregate ([
-            {
-                $facet: {
-                    data: basePipeline,
-                    totalCount: [
-                        { $match: filter },
-                        ...(user === 'true' || user === true
-                        ? [{ $group: { _id: "$whatsAppNumber" } }]
-                        : []),
-                        { $count: "total" }
-                    ],
-                    statusCounts: [
-                        { $match: filter },
-                        { $group: { _id: "$status", count: { $sum: 1 } } }
-                    ],
-                    sentimentScores: [
-                        { $match: filter },
-                        {
-                            $group: {
-                                _id: null,
-                                behaviourScore: { $avg: "$sentimentScores.behaviourScore" },
-                                sentimentScore: { $avg: "$sentimentScores.sentimentScore" },
-                                speedScore: { $avg: "$sentimentScores.speedScore" }
-                            }
-                        }
-                    ],
-                    sentimentStats: [
-                        {
-                            $group: {
-                                _id: null,
-                                totalBehaviour: { $sum: { $ifNull: ["$sentimentScores.behaviourScore", 0] } },
-                                totalSentiment: { $sum: { $ifNull: ["$sentimentScores.sentimentScore", 0] } },
-                                totalSpeed: { $sum: { $ifNull: ["$sentimentScores.speedScore", 0] } },
-                                totalCount: { $sum: 1 }
-                            }
-                        }
-                    ],
-                    completedCount: [
-                        { $match: { ...filter, status: "completed" } },
-                        { $count: "totalCompleted" }
-                    ],
-                }
-            }
-        ]);
+        globalePipeline.push(
+            { $sort: { sortStatus: 1, lastUpdatedAt: -1 } },
+            { $skip: skip }
+        );
   
-        let appointments = aggResult.data || null;
-        const total = aggResult?.totalCount[0]?.total || 0;
-        const appointmentComplited = aggResult?.completedCount[0]?.totalCompleted || 0;
-    
-        const totalStatusCounts = { completed: 0, cancelled: 0, rescheduled: 0, booked: 0 };
-        aggResult.statusCounts.forEach(item => {
-            if (totalStatusCounts.hasOwnProperty(item._id)) {
-                totalStatusCounts[item._id] = item.count;
-            }
-        });
-  
-        const numbers = appointments.map(a => a.whatsAppNumber);
-        const historyCountsRaw = numbers.length
-        ? await AppointmentModal.aggregate([
-            { $match: { user: userId, whatsAppNumber: { $in: numbers } } },
-            {
-              $group: {
-                _id: { number: "$whatsAppNumber", status: "$status" },
-                count: { $sum: 1 }
-              }
-            }
-          ])
-        : [];
-  
-        const historyMap = {};
-        historyCountsRaw.forEach(item => {
-            const number = item._id.number;
-            const status = item._id.status;
-            if (!historyMap[number]) {
-                historyMap[number] = { completed: 0, cancelled: 0, rescheduled: 0, booked: 0 };
-            }
-                historyMap[number][status] = item.count;
-        });
-
-        const sentimentPerNumber = await AppointmentModal.aggregate([
-            { $match: { user: userId } },
-            {
+      // ---------- MAIN QUERY ----------
+      const [aggResult] = await AppointmentModal.aggregate([{
+        $facet: {
+            data: basePipeline,
+            globaleData: globalePipeline,
+            totalCount: [
+                { $match: filter },
+                ...(user === 'true' || user === true ? [{ $group: { _id: "$whatsAppNumber" } }] : []),
+                { $count: "total" }
+            ],
+            statusCounts: [
+                { $match: filter },
+                { $group: { _id: "$status", count: { $sum: 1 } } }
+            ],
+            sentimentScores: [
+                { $match: filter },
+                {
                 $group: {
-                    _id: "$whatsAppNumber",
+                    _id: null,
+                    behaviourScore: { $avg: "$sentimentScores.behaviourScore" },
+                    sentimentScore: { $avg: "$sentimentScores.sentimentScore" },
+                    speedScore: { $avg: "$sentimentScores.speedScore" }
+                }
+                }
+            ],
+            sentimentStats: [
+                {
+                $group: {
+                    _id: null,
                     totalBehaviour: { $sum: { $ifNull: ["$sentimentScores.behaviourScore", 0] } },
                     totalSentiment: { $sum: { $ifNull: ["$sentimentScores.sentimentScore", 0] } },
                     totalSpeed: { $sum: { $ifNull: ["$sentimentScores.speedScore", 0] } },
-                    count: { $sum: 1 }
+                    totalCount: { $sum: 1 }
                 }
-            },
-            {
-                $project: {
-                    _id: 0,
-                    whatsAppNumber: "$_id",
-                    behaviourScore: { $divide: ["$totalBehaviour", "$count"] },
-                    sentimentScore: { $divide: ["$totalSentiment", "$count"] },
-                    speedScore: { $divide: ["$totalSpeed", "$count"] }
                 }
+            ],
+            completedCount: [
+                { $match: { ...filter, status: "completed" } },
+                { $count: "totalCompleted" }
+            ],
+        }
+      }]);
+  
+      // ---------- PROCESS DATA ----------
+      let appointments = aggResult.data || [];
+      let globaleAppointments = aggResult.globaleData || [];
+      const total = aggResult?.totalCount[0]?.total || 0;
+      const appointmentComplited = aggResult?.completedCount[0]?.totalCompleted || 0;
+  
+      const totalStatusCounts = { completed: 0, cancelled: 0, rescheduled: 0, booked: 0 };
+      aggResult.statusCounts.forEach(item => {
+        if (totalStatusCounts.hasOwnProperty(item._id)) {
+          totalStatusCounts[item._id] = item.count;
+        }
+      });
+  
+      // ---------- HISTORY MAP ----------
+      const numbers = appointments.map(a => a.whatsAppNumber);
+      const historyCountsRaw = numbers.length
+        ? await AppointmentModal.aggregate([
+          { $match: { user: userId, whatsAppNumber: { $in: numbers } } },
+          { $group: { _id: { number: "$whatsAppNumber", status: "$status" }, count: { $sum: 1 } } }
+        ])
+        : [];
+  
+      const historyMap = {};
+      historyCountsRaw.forEach(({ _id: { number, status }, count }) => {
+        if (!historyMap[number]) historyMap[number] = { completed: 0, cancelled: 0, rescheduled: 0, booked: 0 };
+        historyMap[number][status] = count;
+      });
+  
+      // ---------- SENTIMENT MAP ----------
+      const sentimentPerNumber = await AppointmentModal.aggregate([
+        { $match: { user: userId } },
+        {
+          $group: {
+            _id: "$whatsAppNumber",
+            totalBehaviour: { $sum: { $ifNull: ["$sentimentScores.behaviourScore", 0] } },
+            totalSentiment: { $sum: { $ifNull: ["$sentimentScores.sentimentScore", 0] } },
+            totalSpeed: { $sum: { $ifNull: ["$sentimentScores.speedScore", 0] } },
+            count: { $sum: 1 }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            whatsAppNumber: "$_id",
+            behaviourScore: { $divide: ["$totalBehaviour", "$count"] },
+            sentimentScore: { $divide: ["$totalSentiment", "$count"] },
+            speedScore: { $divide: ["$totalSpeed", "$count"] }
+          }
+        }
+      ]);
+  
+      const sentimentMap = sentimentPerNumber.reduce((acc, s) => {
+        acc[s.whatsAppNumber] = {
+          behaviourScore: parseFloat(s.behaviourScore.toFixed(1)),
+          sentimentScore: parseFloat(s.sentimentScore.toFixed(1)),
+          speedScore: parseFloat(s.speedScore.toFixed(1)),
+        };
+        return acc;
+      }, {});
+  
+      // ---------- APPOINTMENT ENRICHMENT ----------
+      appointments = appointments.map(app => {
+        const status = historyMap[app.whatsAppNumber] || { booked: 0, completed: 0, rescheduled: 0, cancelled: 0 };
+        const totalAppointments = (status.booked ?? 0) + (status.completed ?? 0) + (status.rescheduled ?? 0);
+        const avgSentimentScores = sentimentMap[app.whatsAppNumber] || { behaviourScore: 0, sentimentScore: 0, speedScore: 0 };
+  
+        let userType = 'Frequent';
+        if (totalAppointments === 0) userType = 'Inactive';
+        else if (totalAppointments < 3) userType = 'New';
+        else if (totalAppointments < 10) userType = 'Engaged';
+  
+        return { ...app, statusCounts: status, userType, totalAppointments, avgSentimentScores };
+      });
+  
+      // ---------- NOTIFICATIONS ----------
+      const DAY_LIMIT = 30;
+      const now = new Date();
+      const notification = globaleAppointments
+        .filter(app => {
+            const appDate = new Date(app.createdAt);
+            const diffDays = (now - appDate) / (1000 * 60 * 60 * 24);
+
+            const isWithinDays = diffDays <= DAY_LIMIT;
+            const isValidUser = app.user && app.whatsAppNumber;
+
+            return isWithinDays && isValidUser;
+        }).map(app => {
+            return {
+                notifyId: app.notifyId || app._id,
+                totalAppointments: app?.totalAppointments || 0,
+                profileName: app?.profileName || "Unknown",
+                flowTitle: app?.flowTitle || "Unknown", 
+                lastActiveAt: app?.lastActiveAt || new Date(),
+                userId: app?.user || userId,
+                whatsAppNumber: app?.whatsAppNumber || "Unknown",
+                status: app?.status || "unknown",
+                createdAt: app?.createdAt || new Date(),    
+                lastUpdatedAt: app?.lastUpdatedAt || new Date(),
+                sentimentScores: app?.sentimentScores || {
+                    behaviourScore: 0,
+                    sentimentScore: 0,
+                    speedScore: 0
+                },
+                rescheduleCount: app?.rescheduleCount || 0,
             }
-        ]);
-          
-        const sentimentMap = sentimentPerNumber.reduce((acc, s) => {
-            acc[s.whatsAppNumber] = {
-                behaviourScore: parseFloat(s.behaviourScore.toFixed(1)),
-                sentimentScore: parseFloat(s.sentimentScore.toFixed(1)),
-                speedScore: parseFloat(s.speedScore.toFixed(1)),
-            };
-            return acc;
-        }, {})
-          
-        appointments = appointments.map(app => {
-            const status = historyMap[app.whatsAppNumber] || { booked: 0, completed: 0, rescheduled: 0, cancelled: 0 };
-            const totalAppointments = (status.booked ?? 0) + (status.completed ?? 0) + (status.rescheduled ?? 0);
-            const avgSentimentScores = sentimentMap[app.whatsAppNumber] || { behaviourScore: 0, sentimentScore: 0, speedScore: 0 }
-            
-            let userType = 'Frequent';
-            if (totalAppointments === 0) userType = 'Inactive';
-            else if (totalAppointments < 3) userType = 'New';
-            else if (totalAppointments < 10) userType = 'Engaged';
-            
-            return { ...app, statusCounts: status, userType, totalAppointments, avgSentimentScores };
         });
   
-
-        let generalData = {};
-
-        if (user !== 'true' && user !== true && limit == 1) {
-            const totalUserCound = await AppointmentModal.distinct("whatsAppNumber", { user: userId });
-            generalData.totalUniqueUsers = totalUserCound.length;
-
-            const totalActiveUsers = await AppointmentModal.distinct("whatsAppNumber", {
-                user: userId,
-                status: { $in: ["booked", "rescheduled"] }
-            });
-            generalData.activeUserCount = totalActiveUsers.length;
-
-            const avgGlobalSentiment = await AppointmentModal.aggregate([
-                { $match: { user: userId } },
-                {
-                    $group: {
-                        _id: null,
-                        behaviourScore: { $avg: "$sentimentScores.behaviourScore" },
-                        finalScore: { $avg: "$sentimentScores.finalScore" },
-                        sentimentScore: { $avg: "$sentimentScores.sentimentScore" },
-                        speedScore: { $avg: "$sentimentScores.speedScore" }
-                    }
-                }
-            ]);
-
-            generalData.globalAverageSentimentScores = avgGlobalSentiment.map(g => ({
-                behaviourScore: parseFloat(g.behaviourScore.toFixed(1) || 0),
-                finalScore: parseFloat(g.finalScore.toFixed(1) || 0),
-                sentimentScore: parseFloat(g.sentimentScore.toFixed(1) || 0),
-                speedScore: parseFloat(g.speedScore.toFixed(1) || 0)
-            }));
-
-            const currentYear = new Date().getFullYear();
-            const currentMonth = new Date().getMonth() + 1;
-
-            const monthlyDataRaw = await AppointmentModal.aggregate([
-                {
-                    $match: {
-                        user: userId,
-                        status: { $in: ["booked", "rescheduled", "completed"] },
-                        createdAt: {
-                            $gte: new Date(currentYear, 0, 1),
-                            $lt: new Date(currentYear + 1, 0, 1)
-                        }
-                    }
-                },
-                {
-                    $group: {
-                        _id: { month: { $month: "$createdAt" } },
-                        count: { $sum: 1 }
-                    }
-                },
-                { $sort: { "_id.month": 1 } }
-            ]);
-
-            // Map of current year counts
-            const monthCountMap = {};
-            monthlyDataRaw.forEach(m => {
-                monthCountMap[m._id.month] = m.count;
-            });
-
-            // Previous year data
-            const previousYearDataRaw = await AppointmentModal.aggregate([
-                {
-                    $match: {
-                        user: userId,
-                        status: { $in: ["booked", "rescheduled", "completed"] },
-                        createdAt: {
-                            $gte: new Date(currentYear - 1, 0, 1),
-                            $lt: new Date(currentYear, 0, 1)
-                        }
-                    }
-                },
-                {
-                    $group: {
-                        _id: { month: { $month: "$createdAt" } },
-                        count: { $sum: 1 }
-                    }
-                },
-                { $sort: { "_id.month": 1 } }
-            ]);
-
-            const previousYearData = {};
-            previousYearDataRaw.forEach(d => {
-                previousYearData[d._id.month] = d.count;
-            });
-
-            // Build finalMonthlyData (guarantee all months exist)
-            let finalMonthlyData = [];
-            for (let m = 1; m <= 12; m++) {
-                if (m < currentMonth) {
-                    // Past months → only use current year data or 0
-                    finalMonthlyData.push({
-                        month: m,
-                        count: monthCountMap[m] || 0
-                    });
-                } else if (m === currentMonth) {
-                    // Current month → current year, else previous year, else 0
-                    finalMonthlyData.push({
-                        month: m,
-                        count: monthCountMap[m] || previousYearData[m] || 0
-                    });
-                } else {
-                    // Future months → current year, else previous year, else 0
-                    finalMonthlyData.push({
-                        month: m,
-                        count: monthCountMap[m] || previousYearData[m] || 0
-                    });
-                }
+      // ---------- GENERAL DATA (Only when user != true) ----------
+      let generalData = {};
+      if (!(user === 'true' || user === true)) {
+        const [totalUserCound, totalActiveUsers, avgGlobalSentiment, monthlyDataRaw, previousYearDataRaw, totalAppointments, todaysAppointments, todaysCompletedAppointments, todaysCancelledAppointments] = await Promise.all([
+          AppointmentModal.distinct("whatsAppNumber", { user: userId }),
+          AppointmentModal.distinct("whatsAppNumber", { user: userId, status: { $in: ["booked", "rescheduled"] } }),
+          AppointmentModal.aggregate([
+            { $match: { user: userId } },
+            {
+              $group: {
+                _id: null,
+                behaviourScore: { $avg: "$sentimentScores.behaviourScore" },
+                finalScore: { $avg: "$sentimentScores.finalScore" },
+                sentimentScore: { $avg: "$sentimentScores.sentimentScore" },
+                speedScore: { $avg: "$sentimentScores.speedScore" }
+              }
             }
-
-            generalData.monthlyAppointments = finalMonthlyData;
-
-
-            const startOfDay = new Date();
-            startOfDay.setHours(0, 0, 0, 0);
-
-            const endOfDay = new Date();
-            endOfDay.setHours(23, 59, 59, 999);
-
-            const totalAppointments = await AppointmentModal.find({
+          ]),
+          AppointmentModal.aggregate([
+            {
+              $match: {
                 user: userId,
-                status: { $in: ["booked", "rescheduled"] },
-            });
-            generalData.totalAppointments = totalAppointments.length;
-
-            const todaysAppointments = await AppointmentModal.countDocuments({
+                status: { $in: ["booked", "rescheduled", "completed"] },
+                createdAt: { $gte: new Date(new Date().getFullYear(), 0, 1), $lt: new Date(new Date().getFullYear() + 1, 0, 1) }
+              }
+            },
+            { $group: { _id: { month: { $month: "$createdAt" } }, count: { $sum: 1 } } },
+            { $sort: { "_id.month": 1 } }
+          ]),
+          AppointmentModal.aggregate([
+            {
+              $match: {
                 user: userId,
-                status: { $in: ["booked", "rescheduled"] },
-                createdAt: { $gte: startOfDay, $lt: endOfDay }
-            });
-            generalData.todaysAppointments = todaysAppointments;
-
-            const todaysCompletedAppointments = await AppointmentModal.countDocuments({
-                user: userId,
-                status: "completed",
-                lastUpdatedAt: { $gte: startOfDay, $lt: endOfDay }
-            });
-            generalData.todaysCompletedAppointments = todaysCompletedAppointments;
-
-            const todaysCancelledAppointments = await AppointmentModal.countDocuments({
-                user: userId,
-                status: "cancelled",
-                lastUpdatedAt: { $gte: startOfDay, $lt: endOfDay }
-            });
-
-            generalData.todaysCancelledAppointments = todaysCancelledAppointments;
+                status: { $in: ["booked", "rescheduled", "completed"] },
+                createdAt: { $gte: new Date(new Date().getFullYear() - 1, 0, 1), $lt: new Date(new Date().getFullYear(), 0, 1) }
+              }
+            },
+            { $group: { _id: { month: { $month: "$createdAt" } }, count: { $sum: 1 } } },
+            { $sort: { "_id.month": 1 } }
+          ]),
+          AppointmentModal.find({ user: userId, status: { $in: ["booked", "rescheduled"] } }),
+          AppointmentModal.countDocuments({
+            user: userId,
+            status: { $in: ["booked", "rescheduled"] },
+            createdAt: { $gte: new Date().setHours(0, 0, 0, 0), $lt: new Date().setHours(23, 59, 59, 999) }
+          }),
+          AppointmentModal.countDocuments({
+            user: userId,
+            status: "completed",
+            lastUpdatedAt: { $gte: new Date().setHours(0, 0, 0, 0), $lt: new Date().setHours(23, 59, 59, 999) }
+          }),
+          AppointmentModal.countDocuments({
+            user: userId,
+            status: "cancelled",
+            lastUpdatedAt: { $gte: new Date().setHours(0, 0, 0, 0), $lt: new Date().setHours(23, 59, 59, 999) }
+          })
+        ]);
+  
+        const monthCountMap = {};
+        monthlyDataRaw.forEach(m => { monthCountMap[m._id.month] = m.count; });
+  
+        const previousYearData = {};
+        previousYearDataRaw.forEach(d => { previousYearData[d._id.month] = d.count; });
+  
+        const currentMonth = new Date().getMonth() + 1;
+        let finalMonthlyData = [];
+        for (let m = 1; m <= 12; m++) {
+          finalMonthlyData.push({ month: m, count: monthCountMap[m] || previousYearData[m] || 0 });
         }
   
-        return {
-            ...(limit > 1 && { data: appointments }),
-            totalBookings: total,
-            page: Number(page),
-            pages: Math.ceil(total / limit),
-            totalStatusCounts,
-            ...generalData,
-            appointmentComplited,
+        generalData = {
+          totalUniqueUsers: totalUserCound.length,
+          activeUserCount: totalActiveUsers.length,
+          globalAverageSentimentScores: avgGlobalSentiment.map(g => ({
+            behaviourScore: parseFloat(g.behaviourScore?.toFixed(1) || 0),
+            finalScore: parseFloat(g.finalScore?.toFixed(1) || 0),
+            sentimentScore: parseFloat(g.sentimentScore?.toFixed(1) || 0),
+            speedScore: parseFloat(g.speedScore?.toFixed(1) || 0)
+          })),
+          monthlyAppointments: finalMonthlyData,
+          totalAppointments: totalAppointments.length,
+          todaysAppointments,
+          todaysCompletedAppointments,
+          todaysCancelledAppointments
         };
-        
+      }
+  
+      // ---------- COMMON RETURN ----------
+      const commonResponse = {
+        data: appointments,
+        totalBookings: total,
+        page: Number(page),
+        pages: Math.ceil(total / limit),
+        totalStatusCounts,
+        appointmentComplited,
+        notification
+      };
+  
+      // return separately for user true vs false
+      return user === 'true' || user === true
+        ? commonResponse
+        : { ...commonResponse, ...generalData };
+  
     } catch (error) {
-        throw new Error(`Error fetching appointment: ${error.message}`);
+      throw new Error(`Error fetching appointment: ${error.message}`);
     }
 };
   

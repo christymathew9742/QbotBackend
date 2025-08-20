@@ -1,6 +1,7 @@
 const NodeCache = require('node-cache');
 const { Mutex } = require('async-mutex');
 const Sentiment = require('sentiment');
+const { v4: uuidv4 } = require("uuid");
 const AppointmentModal = require('../../models/AppointmentModal');
 const generateDynamicPrompt = require('../../ai/training/preprocess');
 const { generateAIResponse, clearUserTracking } = require('../model/aiModel');
@@ -14,9 +15,11 @@ const {
 } = require('../../utils/common');
 const { getFinalSentimentScore } = require('../../utils/sentimentScore');
 const { ChatBotModel } = require('../../models/chatBotModel/chatBotModel');
+const { notifyAppointmentCreated, notifyAppointmentUpdated } = require('../../utils/notifications');
 
 const userConversationHistories = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
 const userLocks = new Map();
+const newDate = new Date(); 
 
 const getUserMutex = (userPhone) => {
     if (!userLocks.has(userPhone)) {
@@ -47,7 +50,7 @@ const averageSentimentScores = arr => {
   
 const updateConversationHistory = (userPhone, prompt, aiResponse) => {
     const session = userConversationHistories.get(userPhone) || { conversation: [] };
-    const timestamp = new Date();
+    const timestamp = newDate;
 
     const newTurn = [
         { sender: 'Consultant', message: prompt, timestamp },
@@ -129,10 +132,17 @@ const createAIResponse = async (chatData) => {
                         { 
                             $set: { 
                                 status: "cancelled" ,
-                                lastUpdatedAt: new Date().toISOString(),
+                                lastUpdatedAt: newDate.toISOString(),
                             } 
                         }
                     );
+
+                   
+                    notifyAppointmentUpdated({  
+                        ...existingAppointment || {}, 
+                        status: 'cancelled',  
+                        lastUpdatedAt: newDate.toISOString(),
+                    });
                 
                     if (result.modifiedCount > 0) {
                         await clearUserSessionData(userPhone);
@@ -249,6 +259,7 @@ const createAIResponse = async (chatData) => {
                 const history = parseChatHistory(session.conversation);
                 const sentimentScores = await getFinalSentimentScore(history, userPhone, userId);
                 const currentScores = fillMissingSentimentFields(sentimentScores[userPhone] || {});
+                const notifyId = uuidv4();
             
                 let appointmentData = typeof extractJsonFromResp === 'string'
                     ? JSON.parse(extractJsonFromResp)
@@ -295,16 +306,23 @@ const createAIResponse = async (chatData) => {
                                     rescheduleCount: newRescheduleCount,
                                     lastActiveAt: isoStringWithOffset,
                                     userCreated: firstUserCreated ,
-                                    lastUpdatedAt: new Date().toISOString(),
+                                    lastUpdatedAt: newDate.toISOString(),
                                 },
                                 $push: {
                                     sentimentScoresHistory: { $each: [currentScores], $position: 0 }
                                 }
                             }
                         );
+                        notifyAppointmentUpdated({ 
+                            ...existingAppointment || {}, 
+                            status: 'rescheduled', 
+                            lastUpdatedAt: newDate.toISOString(), 
+                        });
+
                     } else {
                         await AppointmentModal.create ({
                             user: userId,
+                            notifyId,
                             flowTitle: flowTrainingData?.title || "No name",
                             whatsAppNumber: userPhone,
                             flowId: session.selectedFlowId || "",
@@ -317,7 +335,25 @@ const createAIResponse = async (chatData) => {
                             rescheduleCount: 0,
                             lastActiveAt: isoStringWithOffset,
                             userCreated: firstUserCreated,
-                            lastUpdatedAt: new Date().toISOString()
+                            lastUpdatedAt: newDate.toISOString()
+                        });
+
+                        notifyAppointmentCreated ({
+                            user: userId,
+                            notifyId,
+                            flowTitle: flowTrainingData?.title || "No name",
+                            whatsAppNumber: userPhone,
+                            flowId: session.selectedFlowId || "",
+                            status: "booked",
+                            profileName,
+                            data: { ...(appointmentData || {}) },
+                            history: [...(history || [])],
+                            sentimentScores: { ...currentScores },
+                            sentimentScoresHistory: [{ ...currentScores }],
+                            rescheduleCount: 0,
+                            lastActiveAt: isoStringWithOffset,
+                            userCreated: firstUserCreated,
+                            lastUpdatedAt: newDate.toISOString()  
                         });
                     }
                     

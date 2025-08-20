@@ -23,6 +23,11 @@ const AppointmentSchema = new Schema(
             ref: 'User',
             required: true,
         },
+        notifyId: {
+            type: String,
+            required: true,
+            unique: true,
+        },
         whatsAppNumber: {
             type: String,
             required: true,
