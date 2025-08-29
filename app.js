@@ -1,9 +1,10 @@
 const express = require('express');
 const path = require('path');
 const authRoutes = require('./routes/authRoutes');
-const chatBotRoute = require('./routes/chatBotRoute/chatBotRoute');
-const appointmentRoute = require('./routes/appointmentRoutes');
+const chatBotRoutes = require('./routes/chatBotRoute/chatBotRoute');
+const appointmentRoutes = require('./routes/appointmentRoutes');
 const whatsappRoutes = require('./routes/whatsappRoutes/whatsappRoutes');
+const notificationRoutes = require('./routes/notificationRoutes')
 const adminRoutes = require('./routes/adminRoutes');
 const bodyParser = require('body-parser');
 const cors = require('cors');
@@ -54,9 +55,10 @@ app.use('/api/auth/google-login', (req, res, next) => {
 connectDB();
 
 app.use('/api/auth', authRoutes);
-app.use('/api/createbots', chatBotRoute);
-app.use('/api/appointments', appointmentRoute);
+app.use('/api/createbots', chatBotRoutes);
+app.use('/api/appointments', appointmentRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.use(bodyParser.json());

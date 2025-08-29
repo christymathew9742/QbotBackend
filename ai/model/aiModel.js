@@ -16,7 +16,7 @@ const aiQuestionTrackers = new Map();
 /**
  * Enqueue a user-specific request to avoid overlapping & rate-limit issues
  */
-const enqueueRequest = (userId, taskFn, promptId) => {
+const enqueueRequest = (userId, taskFn, promptId, clearUserSessionData, resetUserInput) => {
 
     return new Promise((resolve, reject) => {
 
@@ -51,6 +51,8 @@ const enqueueRequest = (userId, taskFn, promptId) => {
         }
 
         if (userQueue.awaitingResponse) {
+            clearUserSessionData(userId);
+            resetUserInput();
             resolve("⚠️Oops! I'm still replying. Please hold on before sending more.");
             return;
         }
@@ -118,7 +120,7 @@ const isQuestion = (text) => {
 /**
  * Generate AI response safely with user-based queue
 */
-const generateAIResponse = async (prompt, userId, retries = 0) => {
+const generateAIResponse = async (prompt, userId, clearUserSessionData, resetUserInput, retries = 0) => {
 
     if (typeof prompt !== 'string' || !prompt.trim()) {
         console.error(`[${userId}] Invalid prompt:`, prompt);
@@ -178,7 +180,7 @@ const generateAIResponse = async (prompt, userId, retries = 0) => {
             return "⚠️ I'm having trouble responding right now. Please try again later.";
         }
         
-    }, promptId);
+    }, promptId, clearUserSessionData, resetUserInput);
 };
 
 /**

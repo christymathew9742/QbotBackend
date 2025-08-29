@@ -4,13 +4,11 @@ let wss;
 
 const initWebSocket = (server) => {
     wss = new WebSocket.Server({ server });
-
     wss.on('connection', (ws) => {
         console.log('🔗 A new client connected');
 
         ws.on('message', (message) => {
             console.log(`📨 Received message: ${message}`);
-            // Optional broadcast
             wss.clients.forEach((client) => {
                 if (client.readyState === WebSocket.OPEN) {
                     client.send(message);
@@ -31,27 +29,16 @@ const broadcastNotification = (notification) => {
     });
 };
 
-const notifyAppointmentCreated = (appointmentData) => {
+const sendToUser = ({type, status, userId}) => {
     broadcastNotification({
-        type: 'appointment_created',
-        appointmentId: appointmentData._id,
-        message: `New appointment from ${appointmentData.whatsAppNumber}`,
-        data: appointmentData,
-    });
-};
-
-const notifyAppointmentUpdated = (appointmentData) => {
-    broadcastNotification({
-        type: 'appointment_updated',
-        appointmentId: appointmentData._id,
-        message: `Appointment updated`,
-        data: appointmentData,
+        type,
+        status,
+        userId,
     });
 };
 
 module.exports = {
     initWebSocket,
-    notifyAppointmentCreated,
-    notifyAppointmentUpdated,
+    sendToUser,
 };
 

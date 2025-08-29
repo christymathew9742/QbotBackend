@@ -1,7 +1,7 @@
 const Sentiment = require('sentiment');
 const sentiment = new Sentiment();
 const AppointmentModal = require('../models/AppointmentModal');
-const WEIGHTS = {completed: 10,rescheduled: 5,cancelled: 0};
+const WEIGHTS = {completed: 10,rescheduled: -1,cancelled: -5};
 
 const normalizeNumber = num => (num ? String(num).replace(/\D/g, '') : '');
 
@@ -115,7 +115,6 @@ const getBehaviourScore = async (
     if (!Array.isArray(numbers)) numbers = [numbers];
     const MIN_APPOINTMENTS_FOR_FULL_CONFIDENCE = 5;
   
-    const total = booked + completed + rescheduled + cancelled || 1;
     const latestData = await AppointmentModal.aggregate([
         { $match: { user: userId, whatsAppNumber: { $in: numbers } } },
         { $sort: { createdAt: -1 } },
@@ -124,8 +123,10 @@ const getBehaviourScore = async (
     ]).read("primary");
   
     if (latestData.length > 0) {
-        rescheduled = latestData[0].rescheduleCount || 0;
+        rescheduled = latestData[0].rescheduleCount || rescheduled;
     }
+
+    const total = booked + completed + rescheduled + cancelled || 1;
   
     const rawScore =
         (completed / total) * WEIGHTS.completed +
