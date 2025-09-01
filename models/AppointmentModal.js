@@ -23,6 +23,11 @@ const AppointmentSchema = new Schema(
             ref: 'User',
             required: true,
         },
+        whatsAppUser: {
+            type: Types.ObjectId,
+            ref: 'User',
+            required: true,
+        },
         whatsAppNumber: {
             type: String,
             required: true,
@@ -56,7 +61,7 @@ const AppointmentSchema = new Schema(
             speedScore: { type: Number, default: 0 },
             finalScore: { type: Number, default: 0 },
         }],
-        rescheduleCount: { type: Number, required: true },
+        rescheduleCount: { type: Number, default: 0 },
         flowTitle: String,
         profileName: String,
         lastActiveAt: {

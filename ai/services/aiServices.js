@@ -14,6 +14,10 @@ const {
 } = require('../../utils/common');
 const { getFinalSentimentScore } = require('../../utils/sentimentScore');
 const { ChatBotModel } = require('../../models/chatBotModel/chatBotModel');
+const User = require('../../models/User');
+const { default: mongoose } = require('mongoose');
+const { createNotification } = require('../../controllers/notificationController');
+const { sendToUser } = require('../../utils/notifications');
 
 const userConversationHistories = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
 const userLocks = new Map();
@@ -47,11 +51,10 @@ const averageSentimentScores = arr => {
   
 const updateConversationHistory = (userPhone, prompt, aiResponse) => {
     const session = userConversationHistories.get(userPhone) || { conversation: [] };
-    const timestamp = new Date();
 
     const newTurn = [
-        { sender: 'Consultant', message: prompt, timestamp },
-        { sender: 'AI', message: aiResponse, timestamp}
+        { sender: 'Consultant', message: prompt, timestamp: new Date()},
+        { sender: 'AI', message: aiResponse, timestamp: new Date()}
     ];
 
     session.conversation.push(...newTurn);
@@ -79,7 +82,10 @@ const createAIResponse = async (chatData) => {
         return { message: 'Invalid user data provided.' };
     }
 
-    onWebhookEvent(whatsTimestamp, userPhone, userId);
+    const date = new Date(whatsTimestamp * 1000);
+    const userRespondTime = date.toISOString().replace('Z', '+00:00');
+
+    onWebhookEvent(userRespondTime, userPhone, userId);
 
     return await mutex.runExclusive(async () => {
         try {
@@ -102,6 +108,10 @@ const createAIResponse = async (chatData) => {
                 console.error('DB Read Error:', err);
                 return { message: '🙁🛑 Error checking your appointment. Please try again.' };
             }
+
+            const messagePrefix = `Hi ${existingAppointment?.data?.name 
+                || existingAppointment?.flowTitle 
+                || 'there'}`
       
             let session = userConversationHistories.get(userPhone) || {
                 conversation: [],
@@ -133,16 +143,43 @@ const createAIResponse = async (chatData) => {
                             } 
                         }
                     );
+
+                    await User.findOneAndUpdate (
+                        { whatsAppNumber: userPhone },
+                        {
+                            $set: {
+                                status: "cancelled",
+                                lastUpdatedAt: new Date().toISOString(),
+                            },
+                        },
+                        { new: true, upsert: true }
+                    );
                 
                     if (result.modifiedCount > 0) {
+                        await createNotification ({
+                            userId,
+                            type: "cancelled",
+                            whatsAppNumber: userPhone,
+                            chatBotTitle: existingAppointment?.flowTitle,
+                            profileName,
+                            appointmentId: existingAppointment?._id,
+                        });
+                        sendToUser({
+                            userId,
+                            type: 'CANCELLED_NOTIFICATION',
+                            status: 'cancelled',
+                        });
                         await clearUserSessionData(userPhone);
-                        return { message: "👍😃 Your appointment has been cancelled successfully." };
+
+                        return { message: `👍 ${messagePrefix}, Your appointment has been cancelled successfully.` };
                     } else {
-                        return { message: "ℹ️ No active appointment found to cancel." };
+                        return { message: `ℹ️ ${messagePrefix}, No active appointment found to cancel.` };
                     }
                 } catch (err) {
                     console.error("Cancel Error:", err);
-                    return { message: "😔🚫 Failed to cancel your appointment. Please try again later." };
+                    await clearUserSessionData(userPhone);
+                    resetUserInput();
+                    return { message: `😔 ${messagePrefix}, Failed to cancel your appointment. Please try again later.` };
                 }
             }
               
@@ -163,7 +200,7 @@ const createAIResponse = async (chatData) => {
                 userConversationHistories.set(userPhone, session);
                 return {
                     optionsArray: {
-                        mainTitle: `🙌 Hi ${existingAppointment?.data?.name || 'there'}, welcome back again! You already have an appointment. Would you like to cancel ❌ or reschedule 🔄 it?`,
+                        mainTitle: `🙌 ${messagePrefix}, welcome back again! You already have an appointment. Would you like to cancel ❌ or reschedule 🔄 it?`,
                         items: [
                             { _id: 'reschedule', title: 'Reschedule Appointment' },
                             { _id: 'cancel', title: 'Cancel Appointment' },
@@ -179,6 +216,8 @@ const createAIResponse = async (chatData) => {
                     flows = await ChatBotModel.find({ user: userId, status: true }, '_id title').limit(5).lean();
                 } catch (err) {
                     console.error('Flow fetch error:', err);
+                    await clearUserSessionData(userPhone);
+                    resetUserInput();
                     return { message: '😔❌ Could not fetch available appointment flows.' };
                 }
 
@@ -223,7 +262,7 @@ const createAIResponse = async (chatData) => {
 
             const conversationText = session.conversation.map(c => `${c.sender}: ${c.message}`);
             const generatedPrompt = await generateDynamicPrompt(conversationText, userPrompt, flowTrainingData);
-            const aiResponse = await generateAIResponse(generatedPrompt, userPhone);
+            const aiResponse = await generateAIResponse(generatedPrompt, userPhone, clearUserSessionData, resetUserInput);
             const options = safeParseOptions(aiResponse);
 
             updateConversationHistory(userPhone, userPrompt, aiResponse);
@@ -244,97 +283,146 @@ const createAIResponse = async (chatData) => {
 
             const averageSentimentScoresSafe = (scoresArray = []) =>
                 fillMissingSentimentFields(averageSentimentScores(scoresArray));
-
-            if (extractJsonFromResp) {
-                const history = parseChatHistory(session.conversation);
-                const sentimentScores = await getFinalSentimentScore(history, userPhone, userId);
-                const currentScores = fillMissingSentimentFields(sentimentScores[userPhone] || {});
+            try {
+                if (extractJsonFromResp) {
+                    const history = parseChatHistory(session.conversation);
+                    const sentimentScores = await getFinalSentimentScore(history, userPhone, userId);
+                    const currentScores = fillMissingSentimentFields(sentimentScores[userPhone] || {});
+                    const appointmentUid = new mongoose.Types.ObjectId();
             
-                let appointmentData = typeof extractJsonFromResp === 'string'
-                    ? JSON.parse(extractJsonFromResp)
-                    : extractJsonFromResp;
+                    let appointmentData = typeof extractJsonFromResp === 'string'
+                        ? JSON.parse(extractJsonFromResp)
+                        : extractJsonFromResp;
             
-                const date = new Date(whatsTimestamp * 1000);
-                const isoStringWithOffset = date.toISOString().replace('Z', '+00:00');
+                    let firstUserCreated = userRespondTime;
             
-                try {
-                    let firstUserCreated = isoStringWithOffset;
                     if (existingAppointment) {
-                        firstUserCreated = existingAppointment.userCreated || isoStringWithOffset;
+                        firstUserCreated = existingAppointment.userCreated || userRespondTime;
+                        await createNotification ({
+                            userId,
+                            type: "rescheduled",
+                            whatsAppNumber: userPhone,
+                            chatBotTitle: existingAppointment?.flowTitle,
+                            profileName,
+                            appointmentId: existingAppointment?._id,
+                        });
+                        sendToUser ({
+                            userId,
+                            type: 'RESHEDULED_NOTIFICATION',
+                            status: 'rescheduled',
+                        });
                     } else {
-                        const firstAppointment = await AppointmentModal.findOne({ whatsAppNumber: userPhone, user: userId})
-                            .sort({ createdAt: 1 })
-                            .lean();
+                        const firstAppointment = await AppointmentModal.findOne ({
+                            whatsAppNumber: userPhone,
+                            user: userId
+                        }).sort({ createdAt: 1 }).lean();
+            
                         if (firstAppointment?.userCreated) {
                             firstUserCreated = firstAppointment.userCreated;
                         }
-                    }
-            
-                    if (existingAppointment) {
-                        const newRescheduleCount = (existingAppointment.rescheduleCount || 0) + 1;
-                        const sentimentHistory = [
-                            ...(existingAppointment.sentimentScoresHistory || []).map(fillMissingSentimentFields),
-                            currentScores
-                        ];
-
-                        await AppointmentModal.updateOne(
-                            { 
-                                whatsAppNumber: userPhone, 
-                                user: userId, 
-                                status:  { $nin: ['cancelled', 'completed'] },
-                                _id: existingAppointment?._id
-                            },
-                            {
-                                $set: {
-                                    data: appointmentData || {},
-                                    _id: existingAppointment?._id,
-                                    status: 'rescheduled',
-                                    flowId: session.selectedFlowId || '',
-                                    history,
-                                    sentimentScores: averageSentimentScoresSafe(sentimentHistory),
-                                    rescheduleCount: newRescheduleCount,
-                                    lastActiveAt: isoStringWithOffset,
-                                    userCreated: firstUserCreated ,
-                                    lastUpdatedAt: new Date().toISOString(),
-                                },
-                                $push: {
-                                    sentimentScoresHistory: { $each: [currentScores], $position: 0 }
-                                }
-                            }
-                        );
-                    } else {
-                        await AppointmentModal.create ({
-                            user: userId,
-                            flowTitle: flowTrainingData?.title || "No name",
+                        await createNotification ({
+                            userId,
+                            type: "booked",
                             whatsAppNumber: userPhone,
-                            flowId: session.selectedFlowId || "",
-                            status: "booked",
+                            chatBotTitle: flowTrainingData?.title || "No name",
                             profileName,
-                            data: { ...(appointmentData || {}) },
-                            history: [...(history || [])],
-                            sentimentScores: { ...currentScores },
-                            sentimentScoresHistory: [{ ...currentScores }],
-                            rescheduleCount: 0,
-                            lastActiveAt: isoStringWithOffset,
-                            userCreated: firstUserCreated,
-                            lastUpdatedAt: new Date().toISOString()
+                            appointmentId: appointmentUid,
+                        });
+                        sendToUser ({
+                            userId,
+                            type: 'BOOKED_NOTIFICATION',
+                            status: 'booked',
                         });
                     }
-                    
+            
+                    // === Common Values ===
+                    const rescheduleCount = existingAppointment?.__v || 0;
+                    const sentimentHistory = existingAppointment
+                    ? [
+                        ...(existingAppointment.sentimentScoresHistory || []).map(fillMissingSentimentFields),
+                        currentScores,
+                    ]
+                    : [currentScores];
+
+                    // === Sync User Collection ===
+                    const userRef = await User.findOneAndUpdate (
+                        { whatsAppNumber: userPhone },
+                        {
+                            $setOnInsert: {
+                                source: "whatsapp",
+                                user: userId,
+                                flowId: session.selectedFlowId || "",
+                                profileName,
+                                userCreated: firstUserCreated,
+                            },
+                            $set: {
+                                status: existingAppointment ? "rescheduled" : "booked",
+                                sentimentScores: averageSentimentScoresSafe(sentimentHistory),
+                                rescheduleCount,
+                                lastActiveAt: userRespondTime,
+                                flowTitle: flowTrainingData?.title || existingAppointment?.flowTitle,
+                                lastUpdatedAt: new Date().toISOString(),
+                            },
+                            $inc: { __v: 1 },
+                            $push: {
+                                sentimentScoresHistory: { $each: [currentScores], $position: 0 }
+                            }
+                        },
+                        { new: true, upsert: true }
+                    );
+
+                    // === Sync Appointment Collection ===
+                    await AppointmentModal.findOneAndUpdate (
+                        {
+                            _id: existingAppointment?._id || appointmentUid, 
+                        },
+                        {
+                            $setOnInsert: {
+                                whatsAppUser: userRef?._id,
+                                user: userId,
+                                flowId: session.selectedFlowId || "",
+                                flowTitle: flowTrainingData?.title || "No name",
+                                whatsAppNumber: userPhone,
+                                profileName,
+                                userCreated: firstUserCreated,
+                            },
+                            $set: {
+                                data: appointmentData || {},
+                                history,
+                                rescheduleCount,
+                                status: existingAppointment ? "rescheduled" : "booked",
+                                sentimentScores: averageSentimentScoresSafe(sentimentHistory),
+                                lastActiveAt: userRespondTime,
+                                lastUpdatedAt: new Date().toISOString(),
+                            },
+                            $inc: { __v: 1 },
+                            $push: {
+                                sentimentScoresHistory: { $each: [currentScores], $position: 0 }
+                            }
+                        },
+                        { new: true, upsert: true }
+                    );
+            
                     await clearUserSessionData(userPhone);
                     resetUserInput();
-
-                } catch (err) {
-                    console.error('Save/Update appointment error:', err);
-                    return {
-                        message: '😔 Sorry, I couldn’t save your appointment 🔄 Let’s try again in a bit ⏳'
-                    };
-                }
-            }
             
+                    return { message: cleanAIResp };
+                }
+            
+            } catch (err) {
+                console.error('Save/Update error:', err);
+                await clearUserSessionData(userPhone);
+                resetUserInput();
+                return {
+                    message: '😔 Sorry, I couldn’t save your appointment  Let’s try again in a bit'
+                };
+            }
+    
             return { message: cleanAIResp };
         } catch (error) {
             console.error('AI Processing Error:', error);
+            await clearUserSessionData(userPhone);
+            resetUserInput();
             return { message: '😊 All my AI buddies are a bit tied up right now. Please hang tight!' };
         }
     });

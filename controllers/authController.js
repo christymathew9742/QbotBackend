@@ -1,4 +1,11 @@
-const { registerUserService, loginUserService, updateUserService } = require('../services/authService');
+const { 
+    registerUserService,
+    loginUserService, 
+    updateUserService, 
+    whtatsAppUserService,
+    getWhatsAppUserDetails,
+    whtatsAppGlobalUserService,
+} = require('../services/authService');
 const fs = require('fs');
 const path = require('path');
 const User = require('../models/User');
@@ -349,6 +356,40 @@ const resetPassword = async (req, res) => {
     }
 };
 
+//get all whatsap user
+const getWhatsAppUser = async (req, res, next) => {
+    try {
+        const { page, limit, search, status } = req.query;
+        const whtsapUser = await whtatsAppUserService(req.user.userId, page, limit, search, status);
+        res.status(200).json({ success: true, ...whtsapUser });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// get WhatsApp user by id
+const getWhatsAppUserById = async (req, res, next) => {
+    try {
+            const whatsap = await getWhatsAppUserDetails(req.params.id, req.user.userId);
+            if (!whatsap) {
+                return res.status(404).json({ success: false, message: 'WhatsApp not found' });
+            }
+        res.status(200).json({ success: true, data: whatsap });
+    } catch (error) {
+        next(error);
+    }
+}; 
+
+//get all global user data
+const getGlobalUserData = async (req, res, next) => {
+    try {
+        const whtsapGlobalUser = await whtatsAppGlobalUserService(req.user.userId);
+        res.status(200).json({ success: true, ...whtsapGlobalUser });
+    } catch (error) {
+        next(error);
+    }
+};
+  
 module.exports = {
     signUp,
     login,
@@ -359,6 +400,9 @@ module.exports = {
     sendOTP,
     verifyOTP,
     resetPassword,
+    getWhatsAppUser,
+    getWhatsAppUserById,
+    getGlobalUserData,
 };
 
 

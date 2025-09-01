@@ -10,7 +10,7 @@ const createChatBot = async (req, res, next) => {
         
         const chatBotData = req.body;
         chatBotData.user = req.user.userId;
-        console.log(chatBotData,'chatBotData')
+
         const chatBotResponse = await chatBotService.createChatBot(chatBotData);
         res.status(201).json({ success: true, data: chatBotResponse });
     } catch (error) {

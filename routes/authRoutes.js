@@ -10,6 +10,9 @@ const {
     sendOTP,
     verifyOTP,
     resetPassword,
+    getWhatsAppUser,
+    getWhatsAppUserById,
+    getGlobalUserData,
 } = require('../controllers/authController');
 const authMiddleware = require('../middlewares/authMiddleware');
 const userMiddleware = require('../middlewares/userMiddleware');
@@ -60,6 +63,9 @@ router.put('/profile/:userId', authMiddleware, userMiddleware, (req, res, next) 
     updateUserProfile(req, res, next);
 });
 router.get('/user', authMiddleware, getCurrentUser);
+router.get('/whatsapp', authMiddleware, getWhatsAppUser);
+router.get('/whatsapp/:id', authMiddleware, getWhatsAppUserById);
+router.get('/globaldata', authMiddleware, getGlobalUserData);
 router.post('/sendmessage', authMiddleware, testWhatsapConfig);
 router.put('/update', upload.single('file'), authMiddleware, updateUser);
 

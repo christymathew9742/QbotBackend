@@ -284,13 +284,8 @@ const fillMissingSentimentFields = (scores = {}) => ({
     ...scores
 });
 
-const onWebhookEvent = async (whatsTimestamp, userPhone, userId) => {
-    if (!whatsTimestamp || !userPhone || !userId) throw new Error("Invalid inputs");
-  
-    const date = new Date(whatsTimestamp * 1000);
-    if (isNaN(date)) throw new Error("Invalid timestamp");
-  
-    const isoStringWithOffset = date.toISOString().replace('Z', '+00:00');
+const onWebhookEvent = async (userRespondTime, userPhone, userId) => {
+    if (!userRespondTime || !userPhone || !userId) throw new Error("Invalid inputs");
   
     await AppointmentModal.updateMany(
         {
@@ -298,10 +293,10 @@ const onWebhookEvent = async (whatsTimestamp, userPhone, userId) => {
             user: userId,
             $or: [
                 { lastActiveAt: { $exists: false } },
-                { lastActiveAt: { $lt: isoStringWithOffset } }
+                { lastActiveAt: { $lt: userRespondTime } }
             ]
         },
-        { $set: { lastActiveAt: isoStringWithOffset } }
+        { $set: { lastActiveAt: userRespondTime } }
     );
 };
 
