@@ -1,6 +1,5 @@
 const NodeCache = require('node-cache');
 const { Mutex } = require('async-mutex');
-const Sentiment = require('sentiment');
 const AppointmentModal = require('../../models/AppointmentModal');
 const generateDynamicPrompt = require('../../ai/training/preprocess');
 const { generateAIResponse, clearUserTracking } = require('../model/aiModel');
@@ -11,6 +10,7 @@ const {
     parseChatHistory,
     fillMissingSentimentFields,
     onWebhookEvent,
+    extractPreferenceObj,
 } = require('../../utils/common');
 const { getFinalSentimentScore } = require('../../utils/sentimentScore');
 const { ChatBotModel } = require('../../models/chatBotModel/chatBotModel');
@@ -61,9 +61,20 @@ const updateConversationHistory = (userPhone, prompt, aiResponse) => {
     userConversationHistories.set(userPhone, session);
 };
 
-const clearUserSessionData = async (userPhone) => {
-    userConversationHistories.del(userPhone);
-    clearUserTracking(userPhone);
+const clearUserSessionData = async (userPhone = "") => {
+    try {
+        if (userConversationHistories) {
+            if (typeof userConversationHistories.del === "function") {
+                userConversationHistories.del(userPhone);
+            } else if (typeof userConversationHistories.delete === "function") {
+                userConversationHistories.delete(userPhone);
+            }
+        }
+        clearUserTracking?.(userPhone);
+
+    } catch (err) {
+        console.error("❌ Failed to clear session:", err.message);
+    }
 };
 
 const createAIResponse = async (chatData) => {
@@ -82,6 +93,11 @@ const createAIResponse = async (chatData) => {
         return { message: 'Invalid user data provided.' };
     }
 
+    const resetUserInput = () => {
+        userPrompt = null;
+        userOption = null;
+    };
+
     const date = new Date(whatsTimestamp * 1000);
     const userRespondTime = date.toISOString().replace('Z', '+00:00');
 
@@ -89,13 +105,8 @@ const createAIResponse = async (chatData) => {
 
     return await mutex.runExclusive(async () => {
         try {
-            const isStartingWithP = typeof userOption === 'string' && userOption?.startsWith('P-');
-            let userPrompt = userOption && isStartingWithP ? userOption : prompt;
-
-            const resetUserInput = () => {
-                userPrompt = null;
-                userOption = null;
-            };
+            const isUserOption = typeof userOption === 'string' && userOption?.startsWith('P-');
+            let userPrompt = userOption && isUserOption ? userOption : prompt;
 
             let existingAppointment;
             try {
@@ -177,7 +188,7 @@ const createAIResponse = async (chatData) => {
                     }
                 } catch (err) {
                     console.error("Cancel Error:", err);
-                    await clearUserSessionData(userPhone);
+                    await  clearUserSessionData(userPhone);
                     resetUserInput();
                     return { message: `😔 ${messagePrefix}, Failed to cancel your appointment. Please try again later.` };
                 }
@@ -201,7 +212,8 @@ const createAIResponse = async (chatData) => {
                 return {
                     optionsArray: {
                         mainTitle: `🙌 ${messagePrefix}, welcome back again! You already have an appointment. Would you like to cancel ❌ or reschedule 🔄 it?`,
-                        items: [
+                        type:'list',
+                        resp: [
                             { _id: 'reschedule', title: 'Reschedule Appointment' },
                             { _id: 'cancel', title: 'Cancel Appointment' },
                         ],
@@ -227,7 +239,8 @@ const createAIResponse = async (chatData) => {
                     return {
                         optionsArray: {
                             mainTitle: '👉 Pick an option to book your appointment.',
-                            items: flows.map(({ _id, title }) => ({ _id, title })),
+                            type:'list',
+                            resp: flows.map(({ _id, title }) => ({ _id, title })),
                         },
                         isQuestion: true
                     };
@@ -262,20 +275,23 @@ const createAIResponse = async (chatData) => {
 
             const conversationText = session.conversation.map(c => `${c.sender}: ${c.message}`);
             const generatedPrompt = await generateDynamicPrompt(conversationText, userPrompt, flowTrainingData);
-            const aiResponse = await generateAIResponse(generatedPrompt, userPhone, clearUserSessionData, resetUserInput);
-            const options = safeParseOptions(aiResponse);
+            console.log(generatedPrompt)
 
+            let aiResponse = await generateAIResponse(generatedPrompt, userPhone, clearUserSessionData, resetUserInput);
+            aiResponse = extractPreferenceObj(aiResponse)
+            const options = safeParseOptions(aiResponse, aiResponse?.slot);
             updateConversationHistory(userPhone, userPrompt, aiResponse);
             session = userConversationHistories.get(userPhone);
             const extractJsonFromResp = extractJsonFromResponse(aiResponse);
             const cleanAIResp = cleanAIResponse(aiResponse);
-
+          
             if (Array.isArray(options) && options.length > 0) {
-                const [{ id: firstId, value: mainTitle }, ...rest] = options;
+                const [{ id: firstId, value: mainTitle, type }, ...rest] = options;
                 return {
                     optionsArray: {
                         mainTitle,
-                        items: rest.map(({ id, value }) => ({ _id: id, title: value })),
+                        type: type.toLowerCase(),
+                        resp: rest.map(({ id, value }) => ({ _id: id, title: value })),
                     },
                     isQuestion: true
                 };
@@ -283,6 +299,7 @@ const createAIResponse = async (chatData) => {
 
             const averageSentimentScoresSafe = (scoresArray = []) =>
                 fillMissingSentimentFields(averageSentimentScores(scoresArray));
+
             try {
                 if (extractJsonFromResp) {
                     const history = parseChatHistory(session.conversation);
@@ -297,7 +314,7 @@ const createAIResponse = async (chatData) => {
                     let firstUserCreated = userRespondTime;
             
                     if (existingAppointment) {
-                        firstUserCreated = existingAppointment.userCreated || userRespondTime;
+                        firstUserCreated = existingAppointment?.userCreated || userRespondTime;
                         await createNotification ({
                             userId,
                             type: "rescheduled",
@@ -344,9 +361,11 @@ const createAIResponse = async (chatData) => {
                     ]
                     : [currentScores];
 
-                    // === Sync User Collection ===
-                    const userRef = await User.findOneAndUpdate (
-                        { whatsAppNumber: userPhone },
+                    const userRef = await User.findOneAndUpdate(
+                        {
+                            whatsAppNumber: userPhone,
+                            user: userId 
+                        },
                         {
                             $setOnInsert: {
                                 source: "whatsapp",
@@ -368,8 +387,13 @@ const createAIResponse = async (chatData) => {
                                 sentimentScoresHistory: { $each: [currentScores], $position: 0 }
                             }
                         },
-                        { new: true, upsert: true }
+                        {
+                            new: true,
+                            upsert: true,
+                            setDefaultsOnInsert: true,
+                        }
                     );
+
 
                     // === Sync Appointment Collection ===
                     await AppointmentModal.findOneAndUpdate (
@@ -405,7 +429,6 @@ const createAIResponse = async (chatData) => {
             
                     await clearUserSessionData(userPhone);
                     resetUserInput();
-            
                     return { message: cleanAIResp };
                 }
             
@@ -417,7 +440,11 @@ const createAIResponse = async (chatData) => {
                     message: '😔 Sorry, I couldn’t save your appointment  Let’s try again in a bit'
                 };
             }
-    
+
+            if(!cleanAIResp) {
+                await clearUserSessionData(userPhone);
+                resetUserInput();
+            }
             return { message: cleanAIResp };
         } catch (error) {
             console.error('AI Processing Error:', error);

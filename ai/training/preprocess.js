@@ -1,4 +1,6 @@
+const { isUserOption } = require('../../utils/common');
 const generateDynamicFlowData = require('./conversationFlowGenerator');
+
 const extractMandatoryFieldsFromFlow = (flowTrainingData) => {
     const fieldSet = new Set();
     const optionObjects = [];
@@ -6,20 +8,17 @@ const extractMandatoryFieldsFromFlow = (flowTrainingData) => {
     flowTrainingData?.nodes?.forEach((node) => {
         node?.data?.inputs?.forEach((input) => {
             if (input?.field === 'replay') {
-                const matches = input.value.match(/\[([^\]]+)\]/g);
-
-                if (matches && matches.length > 0) {
-                    matches.forEach((match) => {
-                        const fieldName = match.replace(/[\[\]]/g, '').trim();
-                        if (fieldName) fieldSet.add(fieldName);
-                    });
-                }
+                const matches = input?.value?.match(/\[([^\]]+)\]/g) || [];
+                matches.forEach((match) => {
+                    const fieldName = match.replace(/[\[\]]/g, '').trim();
+                    if (fieldName) fieldSet.add(fieldName);
+                });
             } else if (input?.field === 'preference') {
                 input?.options?.forEach((opt, i) => {
-                    if (i > 0) {
+                    if (i > 0 && opt?.id && opt?.value) {
                         optionObjects.push({
-                            id: opt?.id,
-                            value: opt?.value?.trim()
+                            id: String(opt.id).trim(),
+                            value: String(opt.value).trim()
                         });
                     }
                 });
@@ -39,41 +38,54 @@ const extractMandatoryFieldsFromFlow = (flowTrainingData) => {
 };
 
 const generateDynamicPrompt = async (
-    conversationHistory,
-    ConsultantMessage,
-    flowTrainingData,
+    conversationHistory = [],
+    ConsultantMessage = '',
+    flowTrainingData = {},
     currentNodeId,
 ) => {
     if (!flowTrainingData) return null;
+    const isUserOptions = isUserOption(ConsultantMessage, 'P-SL');
+    const selectedSlots = Array.isArray(ConsultantMessage)
+        ? ConsultantMessage.filter(Boolean) 
+        : ConsultantMessage
+            ? [ConsultantMessage]
+            : [];
+    const normalizedMessage = selectedSlots.join(', ');
 
     const now = new Date();
     const currentDate = now.toISOString().split('T')[0];
     const currentTime = now.toLocaleTimeString();
     const currentYear = now.getFullYear();
-    const structuredFlow = generateDynamicFlowData(flowTrainingData);
-    const currentStep = structuredFlow?.find(step => step.nodeId === currentNodeId);
 
-    if (!currentStep) return `⚠️ Error: Flow step with nodeId "${currentNodeId}" not found.`;
+    const structuredFlow = generateDynamicFlowData(flowTrainingData, ConsultantMessage);
+    const currentStep = structuredFlow?.find(step => step?.nodeId === currentNodeId);
+
+    if (!currentStep) {
+        return `⚠️ Error: Flow step with nodeId "${currentNodeId}" not found.`;
+    }
 
     const mandatoryFields = extractMandatoryFieldsFromFlow(flowTrainingData);
-    const preferenceField = mandatoryFields?.find(f => f.field === 'preference');
-    const preferenceOptionsStr = preferenceField
-        ? JSON.stringify(preferenceField.preferenceOptions || [], null, 2)
-        : '[]';
 
-    const flowData = structuredFlow?.map(section => `- ${section.section} (Node ID: ${section.nodeId || 'N/A'}):\n  ${section.instructions.map(i => `  - ${i}`).join('\n')}`)
+    const flowData = structuredFlow
+        ?.map(section => {
+            const instructions = section?.instructions?.map(i => `  - ${i}`).join('\n') || '';
+            return `- ${section?.section || 'Unknown'} (Node ID: ${section?.nodeId || 'N/A'}):\n${instructions}`;
+        })
         .join('\n');
-    // console.log(flowData)
+
     const prompt = `
         **Training Data**
         Key Flow Instructions:
         ${flowData}
 
         **Conversation History**
-        ${conversationHistory.join('\n')}
+        ${conversationHistory.filter(Boolean).join('\n')}
 
         **New Consultant Message**
-        ${ConsultantMessage}
+        ${ConsultantMessage || '[Empty]'}
+
+        **Consultant selected Time Slots**
+        ${isUserOptions ? normalizedMessage : 'N/A'}
 
         **System Time**
         ${currentDate} (${currentYear}) - ${currentTime}
@@ -84,18 +96,13 @@ const generateDynamicPrompt = async (
             ? mandatoryFields.map(field => `- ${field.field || field}`).join('\n')
             : '✅ No mandatory fields required.'
         }
-
-        ${preferenceField ? `
-            🎯 **Preference Options**
-            Use the following list to match consultant-selected preference option IDs:
-            ${preferenceOptionsStr}
-        ` : ''}
+     
     `.trim();
-
     return prompt;
 };
 
 module.exports = generateDynamicPrompt;
+
 
 
 

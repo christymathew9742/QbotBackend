@@ -6,21 +6,26 @@ const handleConversation = async (userData) => {
 
     if (aiResponse?.message) {
       return {
-        resp: aiResponse.message,
-        type: 'text'
+        resp: aiResponse?.message,
+        type: 'text',
+        mainTitle: ''
       };
     };
 
     if (aiResponse?.optionsArray) {
-      return {
-        resp: aiResponse.optionsArray.items,
-        type: 'list',
-        mainTitle: aiResponse.optionsArray.mainTitle,
-      }
+      console.log(aiResponse.optionsArray.resp,aiResponse?.optionsArray?.type,aiResponse?.optionsArray?.mainTitle,'aiResponseaiResponseaiResponseaiResponse')
+      return aiResponse?.optionsArray;
+      // return {
+      //   resp: aiResponse?.optionsArray?.items,
+      //   type: aiResponse?.optionsArray?.type?.toLowerCase(),
+      //   mainTitle: aiResponse?.optionsArray?.mainTitle,
+      // }
     };
+
     return {
       resp: '🙏Please try again in a little while.',
-      type: 'text'
+      type: 'text',
+      mainTitle: ''
     };
     
   } catch (error) {

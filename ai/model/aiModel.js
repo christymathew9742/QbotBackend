@@ -16,7 +16,7 @@ const aiQuestionTrackers = new Map();
 /**
  * Enqueue a user-specific request to avoid overlapping & rate-limit issues
  */
-const enqueueRequest = (userId, taskFn, promptId, clearUserSessionData, resetUserInput) => {
+const enqueueRequest = (userId, taskFn, promptId, clearUserSessionData = () => {}, resetUserInput = () => {}) => {
 
     return new Promise((resolve, reject) => {
 
@@ -51,7 +51,7 @@ const enqueueRequest = (userId, taskFn, promptId, clearUserSessionData, resetUse
         }
 
         if (userQueue.awaitingResponse) {
-            clearUserSessionData(userId);
+            clearUserSessionData(userId || '');
             resetUserInput();
             resolve("⚠️Oops! I'm still replying. Please hold on before sending more.");
             return;
@@ -120,7 +120,7 @@ const isQuestion = (text) => {
 /**
  * Generate AI response safely with user-based queue
 */
-const generateAIResponse = async (prompt, userId, clearUserSessionData, resetUserInput, retries = 0) => {
+const generateAIResponse = async (prompt, userId, clearUserSessionData = () => {}, resetUserInput = () => {}, retries = 0) => {
 
     if (typeof prompt !== 'string' || !prompt.trim()) {
         console.error(`[${userId}] Invalid prompt:`, prompt);
@@ -169,9 +169,9 @@ const generateAIResponse = async (prompt, userId, clearUserSessionData, resetUse
         }  catch (error) {
             if (error.status === 503 || error.status === 429) { 
                 const delayTime = RETRY_DELAY_MS * (retries + 1);
-                console.log(`[${userId}] Retrying in ${delayTime}ms...`);
+                console.log(`[${userId}]Too Many Requests or Service Unavailable, Retrying in ${delayTime}ms...`);
                 await delay(delayTime);
-                return generateAIResponse(prompt, userId, retries + 1);
+                console.log(error)
             }
         
             if (error?.response?.promptFeedback?.blockReason === 'PROHIBITED_CONTENT') {

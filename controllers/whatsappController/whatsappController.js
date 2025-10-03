@@ -51,7 +51,7 @@ const handleIncomingMessage = async (req, res) => {
         }
 
         // ✅ Ignore empty or unsupported message types
-        if (!whatsapData?.text?.body && !whatsapData?.interactive?.list_reply?.id) {
+        if (!whatsapData?.text?.body && !whatsapData?.interactive?.list_reply?.id && !whatsapData?.interactive?.button_reply?.id) {
             return res.status(400).send('No valid message body found');
         }
 
@@ -101,7 +101,6 @@ const handleIncomingMessage = async (req, res) => {
                 return res.status(400).send('Unsupported message type');
         }
 
-        // ✅ Only send message if AI response is valid
         if (aiResponse?.resp) {
             await sendMessageToWhatsApp(userPhone, aiResponse, botUser);
         }
@@ -130,24 +129,31 @@ const validateToken = (user, secretKey) => {
 
 const sendMessageToWhatsApp = async (phoneNumber, aiResponse, botUser) => {
     try {
-        const { resp, type, mainTitle = "", options = [] } = aiResponse || {};
+        const { resp, type = "", mainTitle = "" } = aiResponse || {};
         let data;
+        if(!type || !phoneNumber) return;
+        
         if (type === "list") {
             const rows = resp.map(item => ({
                 id: item._id?.toString(),
-                title: item?.title
+                title: item?.title,
             }));
 
             data = {
-                messaging_product: 'whatsapp',
+                messaging_product: "whatsapp",
                 to: phoneNumber,
-                type: 'interactive',
+                type: "interactive",
                 interactive: {
-                    type: 'list',
-                    body: { text: mainTitle },
+                    type: type,
+                    body: { text: mainTitle || "Please choose an option:" },
                     action: {
-                        button: 'Choose',
-                        sections: [{ rows }]
+                        button: "Choose",
+                        sections: [
+                            {
+                                title: "Options", 
+                                rows
+                            }
+                        ]
                     }
                 }
             };
@@ -157,31 +163,33 @@ const sendMessageToWhatsApp = async (phoneNumber, aiResponse, botUser) => {
                 to: phoneNumber,
                 type: "interactive",
                 interactive: {
-                    type: "button",
-                    body: { text: "Select one of the options below:" },
+                    type: type,
+                    body: { text: mainTitle || "Please choose:" },
                     action: {
-                        buttons: options.map((option, index) => ({
+                        buttons: resp.map((option) => ({
                             type: "reply",
                             reply: {
-                                id: `option_${index + 1}`,
-                                title: option.title
+                                id: String(option?._id),
+                                title: String(option?.title)
                             }
                         }))
                     }
                 }
             };
-        } else {
+        } else if (type === "text") {
             data = {
                 messaging_product: "whatsapp",
                 to: phoneNumber,
-                type: "text",
-                text: { body: resp }
+                type: type,
+                text: { body: String(resp) }
             };
+        } else {
+            throw new Error(`Unsupported message type: ${type}`);
         }
 
         await axios.post(
             `${baseUrl}/${botUser?.phonenumberid}/messages`,
-            JSON.stringify(data),
+            data,
             {
                 headers: {
                     Authorization: `Bearer ${botUser?.accesstoken}`,
@@ -191,7 +199,7 @@ const sendMessageToWhatsApp = async (phoneNumber, aiResponse, botUser) => {
         );
     } catch (error) {
         console.error("Error sending message:", error?.response?.data || error?.message);
-        await handleConversation(error?.response?.data || error?.message)
+        await handleConversation(error?.response?.data || error?.message);
     }
 };
 

@@ -1,3 +1,131 @@
+// const mongoose = require('mongoose');
+// const bcrypt = require('bcryptjs');
+// const { Schema, Types } = mongoose;
+
+// const userSchema = new Schema({
+//   source: { 
+//     type: String, 
+//     default: 'chatBot' 
+//   },
+//   username: { 
+//     type: String, 
+//     required: function () {
+//       return this.source !== "whatsapp";
+//     }
+//   },
+//   email: { 
+//     type: String, 
+//     unique: true, 
+//     sparse: true,  
+//     required: function () {
+//       return this.source !== "whatsapp";
+//     },
+//   },
+//   password: { 
+//     type: String, 
+//     required: function () {
+//       return this.source !== "whatsapp";
+//     }
+//   },
+//   generateToken: Boolean,
+//   verifytoken: String,
+//   phonenumberid:String,
+//   accesstoken:String,
+//   rescheduleCount: { 
+//     type: Number, 
+//     default: 0 
+//   },
+//   user: {
+//     type: Types.ObjectId,
+//     ref: 'User',
+//   },
+//   whatsAppNumber: {
+//       type: String,
+//   },
+//   flowId: {
+//       type: String,
+//   },
+//   status: {
+//       type: String,
+//   },
+//   sentimentScores: {
+//       sentimentScore: { type: Number },
+//       behaviourScore: { type: Number },
+//       speedScore: { type: Number },
+//       finalScore: { type: Number },
+//   },
+//   sentimentScoresHistory: [{
+//       sentimentScore: { type: Number, default: 0 },
+//       behaviourScore: { type: Number, default: 0 },
+//       speedScore: { type: Number, default: 0 },
+//       finalScore: { type: Number, default: 0 },
+//   }],
+//   flowTitle: String,
+//   profileName: String,
+//   lastActiveAt: {
+//       type: Date, 
+//       default: Date.now,
+//   },
+//   userCreated: {
+//       type: Date, 
+//       default: Date.now,
+//   },
+//   lastUpdatedAt: {
+//       type: Date, 
+//       default: Date.now,
+//   },
+//   profilepick: {
+//     originalName: {
+//       type: String,
+//     },
+//     mimeType: {
+//       type: String,
+//     },
+//     size: {
+//       type: Number,
+//     },
+//     path: {
+//       type: String,
+//     },
+//     filename: {
+//       type: String,
+//     },
+//     fileUrl: {
+//       type: String,
+//     }
+//   },
+//   googleProfilePic: String,
+//   displayname: String,
+//   country:String,
+//   state:String,
+//   phone: String,
+//   postalcode:String,
+//   bio: String,
+//   facebook: String,
+//   twitter: String,
+//   linkedin: String,
+//   instagram: String,
+//   taxId:String,
+//   role: { 
+//     type: String, 
+//     enum: ['user', 'admin', 'superadmin'], 
+//     default: 'user', 
+//   },
+//   otpCode: { type: String },
+//   otpExpiresAt: { type: Date },
+// }, { timestamps: true });
+
+// userSchema.pre('save', async function(next) {
+//   if (this.isModified('password')) {
+//     this.password = await bcrypt.hash(this.password, 10);
+//   }
+//   next();
+// });
+
+
+// module.exports = mongoose.model('User', userSchema);
+
+
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { Schema, Types } = mongoose;
@@ -29,8 +157,8 @@ const userSchema = new Schema({
   },
   generateToken: Boolean,
   verifytoken: String,
-  phonenumberid:String,
-  accesstoken:String,
+  phonenumberid: String,
+  accesstoken: String,
   rescheduleCount: { 
     type: Number, 
     default: 0 
@@ -42,12 +170,8 @@ const userSchema = new Schema({
   whatsAppNumber: {
       type: String,
   },
-  flowId: {
-      type: String,
-  },
-  status: {
-      type: String,
-  },
+  flowId: String,
+  status: String,
   sentimentScores: {
       sentimentScore: { type: Number },
       behaviourScore: { type: Number },
@@ -75,46 +199,38 @@ const userSchema = new Schema({
       default: Date.now,
   },
   profilepick: {
-    originalName: {
-      type: String,
-    },
-    mimeType: {
-      type: String,
-    },
-    size: {
-      type: Number,
-    },
-    path: {
-      type: String,
-    },
-    filename: {
-      type: String,
-    },
-    fileUrl: {
-      type: String,
-    }
+    originalName: String,
+    mimeType: String,
+    size: Number,
+    path: String,
+    filename: String,
+    fileUrl: String
   },
   googleProfilePic: String,
   displayname: String,
-  country:String,
-  state:String,
+  country: String,
+  state: String,
   phone: String,
-  postalcode:String,
+  postalcode: String,
   bio: String,
   facebook: String,
   twitter: String,
   linkedin: String,
   instagram: String,
-  taxId:String,
+  taxId: String,
   role: { 
     type: String, 
     enum: ['user', 'admin', 'superadmin'], 
     default: 'user', 
   },
-  otpCode: { type: String },
-  otpExpiresAt: { type: Date },
+  otpCode: String,
+  otpExpiresAt: Date,
 }, { timestamps: true });
 
+// Compound unique index to enforce uniqueness of (whatsAppNumber + user)
+userSchema.index({ whatsAppNumber: 1, user: 1 }, { unique: true });
+
+// Password hashing before save
 userSchema.pre('save', async function(next) {
   if (this.isModified('password')) {
     this.password = await bcrypt.hash(this.password, 10);
@@ -122,6 +238,6 @@ userSchema.pre('save', async function(next) {
   next();
 });
 
-
 module.exports = mongoose.model('User', userSchema);
+
 

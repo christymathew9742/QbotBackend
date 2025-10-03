@@ -1,7 +1,8 @@
 const jsonBlockRegex = /```json\s*([\s\S]*?)\s*```/i;
 const trailingJsonRegex = /(?:\s*)({[\s\S]*}|\[[\s\S]*\])\s*$/;
 const jwt = require('jsonwebtoken');
-const AppointmentModal = require('../models/AppointmentModal')
+const AppointmentModal = require('../models/AppointmentModal');
+const { clearUserTracking } = require('../ai/model/aiModel');
 
 function cleanAIResponse(response) {
     if (typeof response !== 'string' || !response.trim()) return '';
@@ -86,8 +87,9 @@ function safeParseOptions(aiResponse) {
             item =>
                 typeof item === 'object' &&
                 typeof item.id === 'string' &&
-                /^P-\d+$/.test(item.id) &&
-                typeof item.value === 'string'
+                // /^P-\d+$/.test(item.id) &&
+                typeof item.value === 'string' &&
+                typeof item.type  === 'string'
             )
         ) {
             return parsed;
@@ -300,6 +302,33 @@ const onWebhookEvent = async (userRespondTime, userPhone, userId) => {
     );
 };
 
+const extractPreferenceObj = (str) => {
+    if (typeof str !== "string") return str;
+  
+        try {
+            const match = str.match(/<pref:(.*?)>/);
+            if (!match) return str;
+        
+            const jsonString = match[1]?.trim();
+            if (!jsonString) return str;
+        
+            let data;
+        try {
+            data = JSON.parse(jsonString);
+        } catch {
+            return str;
+        }
+        return Array.isArray(data) && data.length === 1 ? data[0] : data;
+    } catch {
+        return str;
+    }
+};
+
+function isUserOption(userOption, prefix) {
+    return typeof userOption === "string" && userOption.startsWith(prefix);
+}
+  
+
 module.exports = {
     cleanAIResponse,
     extractJsonFromResponse,
@@ -311,6 +340,8 @@ module.exports = {
     parseChatHistory,
     fillMissingSentimentFields,
     onWebhookEvent,
+    extractPreferenceObj,
+    isUserOption,
 };
   
 
