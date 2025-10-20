@@ -198,7 +198,7 @@ const userSchema = new Schema({
       type: Date, 
       default: Date.now,
   },
-  profilepick: {
+  profilepic: {
     originalName: String,
     mimeType: String,
     size: Number,

@@ -133,6 +133,32 @@ const sendMessageToWhatsApp = async (phoneNumber, aiResponse, botUser) => {
         let data;
         if(!type || !phoneNumber) return;
         
+        // if (type === "list") {
+        //     const rows = resp.map(item => ({
+        //         id: item._id?.toString(),
+        //         title: item?.title,
+        //     }));
+
+        //     data = {
+        //         messaging_product: "whatsapp",
+        //         to: phoneNumber,
+        //         type: "interactive",
+        //         interactive: {
+        //             type: type,
+        //             body: { text: mainTitle || "Please choose an option:" },
+        //             action: {
+        //                 button: "Choose",
+        //                 sections: [
+        //                     {
+        //                         title: "Options", 
+        //                         rows
+        //                     }
+        //                 ]
+        //             }
+        //         }
+        //     };
+        // } 
+
         if (type === "list") {
             const rows = resp.map(item => ({
                 id: item._id?.toString(),
@@ -157,7 +183,9 @@ const sendMessageToWhatsApp = async (phoneNumber, aiResponse, botUser) => {
                     }
                 }
             };
-        } else if (type === "button") {
+        }
+
+        else if (type === "button") {
             data = {
                 messaging_product: "whatsapp",
                 to: phoneNumber,

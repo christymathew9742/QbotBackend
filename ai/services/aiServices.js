@@ -297,6 +297,12 @@ const createAIResponse = async (chatData) => {
                 };
             }
 
+            if(!cleanAIResp) {
+                await clearUserSessionData(userPhone);
+                resetUserInput();
+                return;
+            }
+
             const averageSentimentScoresSafe = (scoresArray = []) =>
                 fillMissingSentimentFields(averageSentimentScores(scoresArray));
 
@@ -310,6 +316,14 @@ const createAIResponse = async (chatData) => {
                     let appointmentData = typeof extractJsonFromResp === 'string'
                         ? JSON.parse(extractJsonFromResp)
                         : extractJsonFromResp;
+                   if (
+                        !appointmentData ||
+                        (typeof appointmentData === 'string' && appointmentData.trim() === '') ||
+                        (Array.isArray(appointmentData) && appointmentData.length === 0) ||
+                        (typeof appointmentData === 'object' && !Array.isArray(appointmentData) && Object.keys(appointmentData).length === 0)
+                    ) {
+                        return; 
+                    }
             
                     let firstUserCreated = userRespondTime;
             
@@ -439,11 +453,6 @@ const createAIResponse = async (chatData) => {
                 return {
                     message: '😔 Sorry, I couldn’t save your appointment  Let’s try again in a bit'
                 };
-            }
-
-            if(!cleanAIResp) {
-                await clearUserSessionData(userPhone);
-                resetUserInput();
             }
             return { message: cleanAIResp };
         } catch (error) {

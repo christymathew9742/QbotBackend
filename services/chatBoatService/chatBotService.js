@@ -1,5 +1,11 @@
 const { ChatBotModel } = require('../../models/chatBotModel/chatBotModel');
 const { errorResponse } = require('../../utils/errorResponse');
+const { Storage } = require("@google-cloud/storage");
+const path = require('path');
+const storage = new Storage({
+  keyFilename: path.join(process.cwd(), 'gcs-key.json'),
+});
+const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 
 // Creating a new ChatBot with unique title validation
 const createChatBot = async (chatBotData) => {
@@ -110,10 +116,105 @@ const deleteChatBot = async (id, userId) => {
     }
 };
 
+//get Signed url for upload
+const getSignedUrlForUpload = async (userId, filename, contentType) => {
+
+    const objectKey = `temp/${userId}/${filename}`;
+    const file = bucket.file(objectKey);
+    const options = {
+        version: "v4",
+        action: "write",
+        expires: Date.now() + 15 * 60 * 1000, 
+        contentType,
+    };
+
+    const [uploadUrl] = await file.getSignedUrl(options);
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${objectKey}`;
+
+    return {
+        uploadUrl,
+        publicUrl,
+        key: objectKey, 
+    };
+};
+
+//move file to permanent
+const moveFileToPermanent = async (tempKey, userId, filename) => {
+    try {
+        if (!tempKey.startsWith(`temp/${userId}/`)) {
+            console.warn(`Temp file does not belong to user ${userId}: ${tempKey}`);
+            return null; 
+        }
+
+        const tempFile = bucket?.file(tempKey);
+        const [exists] = await tempFile.exists();
+        if (!exists) {
+            return null;
+        }
+
+        let permanentKey = `createbots/${userId}/${filename}`;
+        let permanentFile = bucket.file(permanentKey);
+        let [permExists] = await permanentFile.exists();
+
+        if (permExists) {
+            const timestamp = Date.now();
+            const fileParts = filename.split('.');
+            const name = fileParts.slice(0, -1).join('.');
+            const ext = fileParts[fileParts.length - 1];
+            permanentKey = `createbots/${userId}/${name}_${timestamp}.${ext}`;
+            permanentFile = bucket.file(permanentKey);
+        }
+
+        await tempFile.copy(permanentFile);
+        await tempFile.delete();
+
+        const permanentUrl = `https://storage.googleapis.com/${bucket.name}/${permanentKey}`;
+        return { permanentKey, permanentUrl };
+
+    } catch (error) {
+        console.error(`Failed to move temp file to permanent: ${tempKey} → ${filename}`, error.message);
+        return null;
+    }
+};
+
+// Delete uploaded files and update ChatBot references
+const deleteUploadFiles = async (fileKey, chatbotId, userId) => {
+    if (!fileKey || (Array.isArray(fileKey) && fileKey.length === 0)) return;
+
+    const keys = Array.isArray(fileKey) ? fileKey : [fileKey];
+
+    try {
+        await Promise.all(
+            keys.map((key) => bucket.file(key).delete({ ignoreNotFound: true }))
+        );
+
+        const chatBot = await ChatBotModel.findOne({ _id: chatbotId, user: userId });
+        if (chatBot){
+            chatBot.nodes.forEach((node) => {
+                node.data.inputs.forEach((input) => {
+                    if (input.fileData) {
+                        input.fileData = input.fileData.filter((file) => !keys.includes(file.key));
+                    }
+                });
+            });
+
+            chatBot.markModified('nodes');
+            await chatBot.save();
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.warn("File delete error:", err.message);
+    }
+};
+
 module.exports = {
     createChatBot,
     getAllChatBot,
     getChatBotById,
     updateChatBot,
     deleteChatBot,
+    getSignedUrlForUpload,
+    deleteUploadFiles,
+    moveFileToPermanent,
 };
