@@ -15,7 +15,7 @@ let provider = null;
             console.log('✅ Using Gemini API (gemini-2.5-flash)');
         } else {
             const { VertexAI } = require('@google-cloud/vertexai');
-            process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(process.cwd(), 'vertex-key.json');
+            process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(process.cwd(), 'vertex-api-key.json');
 
             const vertex = new VertexAI({
                 project: process.env.GCLOUD_PROJECT || 'your-project-id',
