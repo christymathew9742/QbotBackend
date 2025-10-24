@@ -177,7 +177,6 @@ const moveFileToPermanent = async (tempKey, userId, filename) => {
     }
 };
 
-// Delete uploaded files and update ChatBot references
 const deleteUploadFiles = async (fileKey, chatbotId, userId) => {
     if (!fileKey || (Array.isArray(fileKey) && fileKey.length === 0)) return;
 
@@ -187,20 +186,27 @@ const deleteUploadFiles = async (fileKey, chatbotId, userId) => {
         await Promise.all(
             keys.map((key) => bucket.file(key).delete({ ignoreNotFound: true }))
         );
-
-        const chatBot = await ChatBotModel.findOne({ _id: chatbotId, user: userId });
-        if (chatBot){
-            chatBot.nodes.forEach((node) => {
-                node.data.inputs.forEach((input) => {
-                    if (input.fileData) {
-                        input.fileData = input.fileData.filter((file) => !keys.includes(file.key));
-                    }
-                });
-            });
-
-            chatBot.markModified('nodes');
-            await chatBot.save();
-        }
+        await ChatBotModel.updateOne(
+            { _id: chatbotId, user: userId },
+            {
+                $set: {
+                    nodes: await ChatBotModel.findOne({ _id: chatbotId, user: userId })
+                    .then((chatBot) => {
+                        if (!chatBot) return [];
+                        chatBot.nodes.forEach((node) => {
+                            node.data.inputs.forEach((input) => {
+                                if (input.fileData) {
+                                    input.fileData = input.fileData.filter(
+                                        (file) => !keys.includes(file.key)
+                                    );
+                                }
+                            });
+                        });
+                        return chatBot.nodes;
+                    }),
+                },
+            }
+        );
 
         return { success: true };
     } catch (err) {

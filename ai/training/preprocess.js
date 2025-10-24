@@ -56,8 +56,8 @@ const generateDynamicPrompt = async (
     const currentDate = now.toISOString().split('T')[0];
     const currentTime = now.toLocaleTimeString();
     const currentYear = now.getFullYear();
-
-    const structuredFlow = generateDynamicFlowData(flowTrainingData, ConsultantMessage);
+console.log(conversationHistory);
+    const structuredFlow = await generateDynamicFlowData(flowTrainingData, ConsultantMessage);
     const currentStep = structuredFlow?.find(step => step?.nodeId === currentNodeId);
 
     if (!currentStep) {
@@ -96,12 +96,13 @@ const generateDynamicPrompt = async (
             ? mandatoryFields.map(field => `- ${field.field || field}`).join('\n')
             : '✅ No mandatory fields required.'
         }
-     
+        
     `.trim();
     return prompt;
 };
 
 module.exports = generateDynamicPrompt;
+
 
 
 

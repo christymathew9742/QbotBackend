@@ -100,6 +100,7 @@ const createAIResponse = async (chatData) => {
 
     const date = new Date(whatsTimestamp * 1000);
     const userRespondTime = date.toISOString().replace('Z', '+00:00');
+    const isPotentialFlowId = mongoose.Types.ObjectId.isValid(userOption);
 
     onWebhookEvent(userRespondTime, userPhone, userId);
 
@@ -120,9 +121,7 @@ const createAIResponse = async (chatData) => {
                 return { message: '🙁🛑 Error checking your appointment. Please try again.' };
             }
 
-            const messagePrefix = `Hi ${existingAppointment?.data?.name 
-                || existingAppointment?.flowTitle 
-                || 'there'}`
+            const messagePrefix = `Hi ${existingAppointment?.data?.name || profileName || 'there'}`
       
             let session = userConversationHistories.get(userPhone) || {
                 conversation: [],
@@ -182,7 +181,7 @@ const createAIResponse = async (chatData) => {
                         });
                         await clearUserSessionData(userPhone);
 
-                        return { message: `👍 ${messagePrefix}, Your appointment has been cancelled successfully.` };
+                        return { message: `${messagePrefix}, 👍Your appointment has been cancelled successfully.` };
                     } else {
                         return { message: `ℹ️ ${messagePrefix}, No active appointment found to cancel.` };
                     }
@@ -251,7 +250,7 @@ const createAIResponse = async (chatData) => {
                 }
             }
 
-            if (!existingAppointment && userOption && !session.selectedFlowId) {
+            if (!existingAppointment && !session.selectedFlowId && isPotentialFlowId) {
                 session.selectedFlowId = userOption;
             }
 
@@ -454,6 +453,7 @@ const createAIResponse = async (chatData) => {
                     message: '😔 Sorry, I couldn’t save your appointment  Let’s try again in a bit'
                 };
             }
+
             return { message: cleanAIResp };
         } catch (error) {
             console.error('AI Processing Error:', error);

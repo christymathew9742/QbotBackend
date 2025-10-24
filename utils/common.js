@@ -2,7 +2,6 @@ const jsonBlockRegex = /```json\s*([\s\S]*?)\s*```/i;
 const trailingJsonRegex = /(?:\s*)({[\s\S]*}|\[[\s\S]*\])\s*$/;
 const jwt = require('jsonwebtoken');
 const AppointmentModal = require('../models/AppointmentModal');
-const { clearUserTracking } = require('../ai/model/aiModel');
 
 function cleanAIResponse(response) {
     if (typeof response !== 'string' || !response.trim()) return '';
@@ -87,7 +86,6 @@ function safeParseOptions(aiResponse) {
             item =>
                 typeof item === 'object' &&
                 typeof item.id === 'string' &&
-                // /^P-\d+$/.test(item.id) &&
                 typeof item.value === 'string' &&
                 typeof item.type  === 'string'
             )
@@ -102,18 +100,35 @@ function safeParseOptions(aiResponse) {
     }
 }
 
+// const getValidationHint = (type, requiredFields = []) => {
+//     const baseText = `Mandatory: true\n  - Expected`;
+//     const hints = {
+//         Text: `${baseText} Text only:\n - User Keywords: "name(Only alphabets and common words)", "title", "location name", "reason", "text field"\n - Format: String (e.g., John Doe)\n - Error Message: "Please enter a valid [fieldName]"`,
+//         Number: `${baseText} Numbers only:\n  - User Keywords: "age(ALLOW:1 to 100)", "quantity", "amount", "duration", "count", "number of items"\n  - Format: Numbers only (e.g., 25)\n  - Error Message: "Please enter a valid [fieldName]"`,
+//         Email: `${baseText} Email:\n  - User Keywords: "email", "mail", "email address"\n  - Format: Valid email (e.g., john@example.com)\n  - Error Message: "Please enter a valid email address like john@example.com."`,
+//         Phone: `${baseText} Phone:\n  - User Keywords: "phone", "mobile", "contact number"\n  - Format: 6-12-digit number (e.g., 9876543210)\n  - Error Message: "Please enter a valid phone number."`,
+//         Date: `${baseText} Date:\n  - User Keywords: "date", "appointment date", "birthdate", "meeting date"\n  - Format: YYYY-MM-DD or MM-DD-YY (e.g., 2025-07-10)\n  - Error Message: "Please enter a valid date in YYYY-MM-DD format."`,
+//         Time: `${baseText} Time:\n  - User Keywords: "time", "meeting time", "slot time", "appointment time"\n  - Format: HH:MM (24-hour) (e.g., 14:30)\n  - Error Message: "Please enter a valid time like 14:30 in 24-hour format."`,
+//         URL: `${baseText} URL:\n  - User Keywords: "website", "link", "portfolio", "profile URL"\n  - Format: Valid HTTP/HTTPS URL (e.g., https://example.com)\n  - Error Message: "Please enter a valid website URL starting with http or https."`,
+//         Location: `${baseText} Location:\n  - User Keywords: "location", "coordinates", "map point"\n  - Format: latitude,longitude (e.g., 12.9716,77.5946)\n  - Error Message: "Please provide a valid location format like latitude,longitude."`,
+//         File: `${baseText} File:\n  - User Keywords: "document", "attachment", "file upload", "image file"\n  - Format: Upload only (PDF, DOC, JPG, etc.)\n  - Error Message: "Please upload a valid file attachment only."`
+//     };
+//     return hints[type] || '';
+// };
+
 const getValidationHint = (type, requiredFields = []) => {
     const baseText = `Mandatory: true\n  - Expected`;
+    const globalKeysNote = "Also accept any relevant user-provided keywords for this field.";
     const hints = {
-        Text: `${baseText} Text only:\n - User Keywords: "name(Only alphabets and common words)", "title", "location name", "reason", "text field"\n - Format: String (e.g., John Doe)\n - Error Message: "Please enter a valid [fieldName]"`,
-        Number: `${baseText} Numbers only:\n  - User Keywords: "age(ALLOW:1 to 100)", "quantity", "amount", "duration", "count", "number of items"\n  - Format: Numbers only (e.g., 25)\n  - Error Message: "Please enter a valid [fieldName]"`,
-        Email: `${baseText} Email:\n  - User Keywords: "email", "mail", "email address"\n  - Format: Valid email (e.g., john@example.com)\n  - Error Message: "Please enter a valid email address like john@example.com."`,
-        Phone: `${baseText} Phone:\n  - User Keywords: "phone", "mobile", "contact number"\n  - Format: 6-12-digit number (e.g., 9876543210)\n  - Error Message: "Please enter a valid phone number."`,
-        Date: `${baseText} Date:\n  - User Keywords: "date", "appointment date", "birthdate", "meeting date"\n  - Format: YYYY-MM-DD (e.g., 2025-07-10)\n  - Error Message: "Please enter a valid date in YYYY-MM-DD format."`,
-        Time: `${baseText} Time:\n  - User Keywords: "time", "meeting time", "slot time", "appointment time"\n  - Format: HH:MM (24-hour) (e.g., 14:30)\n  - Error Message: "Please enter a valid time like 14:30 in 24-hour format."`,
-        URL: `${baseText} URL:\n  - User Keywords: "website", "link", "portfolio", "profile URL"\n  - Format: Valid HTTP/HTTPS URL (e.g., https://example.com)\n  - Error Message: "Please enter a valid website URL starting with http or https."`,
-        Location: `${baseText} Location:\n  - User Keywords: "location", "coordinates", "map point"\n  - Format: latitude,longitude (e.g., 12.9716,77.5946)\n  - Error Message: "Please provide a valid location format like latitude,longitude."`,
-        File: `${baseText} File:\n  - User Keywords: "document", "attachment", "file upload", "image file"\n  - Format: Upload only (PDF, DOC, JPG, etc.)\n  - Error Message: "Please upload a valid file attachment only."`
+        Text: `${baseText} Text:\n- Keys: name, title, location, reason\n- ${globalKeysNote}\n- Format: alphabets only (e.g., John Doe)\n- Error: "Enter a valid [fieldName]"`,
+        Number: `${baseText} Number:\n- Keys: age(1–100), quantity, amount, count\n- ${globalKeysNote}\n- Format: digits only (e.g., 25)\n- Error: "Enter a valid [fieldName]"`,
+        Email: `${baseText} Email:\n- Keys: email, mail, address\n- ${globalKeysNote}\n- Format: valid email (e.g., a@b.com)\n- Error: "Enter a valid email"`,
+        Phone: `${baseText} Phone:\n- Keys: phone, mobile, contact\n- ${globalKeysNote}\n- Format: 6–12 digits (e.g., 9876543210)\n- Error: "Enter a valid phone"`,
+        Date: `${baseText} Date:\n- Keys: date, birthdate, meeting\n- ${globalKeysNote}\n- Format: any common date; normalize to DD-MM-YYYY\n- Error: "Enter a valid date"`,
+        Time: `${baseText} Time:\n- Keys: time, slot, meeting\n- ${globalKeysNote}\n- Format: HH:MM (24h, e.g., 14:30)\n- Error: "Enter a valid time"`,
+        URL: `${baseText} URL:\n- Keys: website, link, portfolio\n- ${globalKeysNote}\n- Format: http/https (e.g., https://site.com)\n- Error: "Enter a valid URL"`,
+        Location: `${baseText} Location:\n- Keys: location, coordinates, map\n- ${globalKeysNote}\n- Format: lat,long (e.g., 12.97,77.59)\n- Error: "Enter valid coordinates"`,
+        File: `${baseText} File:\n- Keys: document, attachment, image, video, audio, resume\n- ${globalKeysNote}\n- Format: validate only type relevant to the AI prompt (image, video, audio, document, resume)\n- Error: "Upload a valid file of the requested type only"`
     };
     return hints[type] || '';
 };
@@ -327,7 +342,24 @@ const extractPreferenceObj = (str) => {
 function isUserOption(userOption, prefix) {
     return typeof userOption === "string" && userOption.startsWith(prefix);
 }
-  
+
+const parseToArray = (resp) => {
+    if (!resp) return [];
+    if (Array.isArray(resp)) return resp.map(s => String(s).trim()).filter(Boolean);
+
+    if (typeof resp === 'object') return Object.values(resp).map(s => String(s).trim()).filter(Boolean);
+
+    if (typeof resp === 'string') {
+        const match = resp.match(/\[([^\]]+)\]/);
+        if (match) {
+            return match[1].split(',').map(s => s.trim()).filter(Boolean);
+        }
+
+        return resp.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    return [String(resp)];
+};
 
 module.exports = {
     cleanAIResponse,
@@ -342,6 +374,7 @@ module.exports = {
     onWebhookEvent,
     extractPreferenceObj,
     isUserOption,
+    parseToArray,
 };
   
 
