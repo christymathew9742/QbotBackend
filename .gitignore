@@ -29,3 +29,7 @@ uploads
 #ignore GCS files
 gcs-key.json
 
+#ignore vertex files
+vertex-key.json
+
+
