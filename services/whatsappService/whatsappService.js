@@ -4,6 +4,8 @@ const handleConversation = async (userData) => {
   try {
     const aiResponse = await createAIResponse(userData);
 
+    console.log(aiResponse,'aiResponseaiResponseaiResponse')
+
     if (aiResponse?.message) {
       return {
         resp: aiResponse?.message,
@@ -36,81 +38,59 @@ module.exports = handleConversation;
 
 
 
-// const CHUNK_SIZE = 10;
+
 // const createAIResponse = require('../../ai/services/aiServices');
-
-// function paginateOptions(optionsArray, page = 1) {
-//   const { resp = [], mainTitle = "", type = "list" } = optionsArray || {};
-
-//   if (type !== "list") return optionsArray; // no pagination needed
-
-//   // If total options <= 10, send as-is
-//   if (resp.length <= CHUNK_SIZE) {
-//     return {
-//       mainTitle,
-//       type,
-//       resp
-//     };
-//   }
-
-//   const totalPages = Math.ceil(resp.length / CHUNK_SIZE);
-
-//   // Compute slice size dynamically to account for nav buttons
-//   let sliceSize = CHUNK_SIZE;
-//   const navButtons = [];
-//   if (page > 1) navButtons.push({ _id: `PREV_PAGE_${page - 1}`, title: "⬅️ Back" });
-//   if (page < totalPages) navButtons.push({ _id: `NEXT_PAGE_${page + 1}`, title: "➡️ Next" });
-
-//   // Ensure total items including nav buttons <= 10
-//   sliceSize = CHUNK_SIZE - navButtons.length;
-//   const start = (page - 1) * sliceSize;
-//   const chunk = resp.slice(start, start + sliceSize);
-
-//   return {
-//     mainTitle: `${mainTitle} (Page ${page}/${totalPages})`,
-//     type,
-//     resp: [...chunk, ...navButtons]
-//   };
-// }
-
 // const handleConversation = async (userData) => {
 //   try {
 //     const aiResponse = await createAIResponse(userData);
-
-//     // Text message
-//     if (aiResponse?.message) {
+    
+//     if (!aiResponse || typeof aiResponse !== 'object') {
 //       return {
-//         resp: aiResponse.message,
+//         resp: '🙏Please try again in a little while.',
 //         type: 'text',
 //         mainTitle: ''
 //       };
 //     }
 
-//     // Options list
-//     if (aiResponse?.optionsArray) {
-//       const { resp = [] } = aiResponse.optionsArray;
-
-//       // If total options <= 10, send as-is
-//       if (resp.length <= CHUNK_SIZE) {
-//         return {
-//           mainTitle: aiResponse.optionsArray.mainTitle || '',
-//           type: 'list',
-//           resp
-//         };
-//       }
-
-//       // Determine page number
-//       let page = 1;
-//       if (userData.userOption?.startsWith("NEXT_PAGE_")) {
-//         page = parseInt(userData.userOption.split("_")[2], 10);
-//       } else if (userData.userOption?.startsWith("PREV_PAGE_")) {
-//         page = parseInt(userData.userOption.split("_")[2], 10);
-//       }
-
-//       return paginateOptions(aiResponse.optionsArray, page);
+//     const { message, optionsArray } = aiResponse;
+//     let normalizedMessage = '';
+//     if (Array.isArray(message)) {
+//       normalizedMessage = message.join(', ').trim(); 
+//     } else if (typeof message === 'string') {
+//       normalizedMessage = message.trim();
 //     }
 
-//     // fallback
+//     if (normalizedMessage && optionsArray && Array.isArray(optionsArray.resp) && optionsArray.resp.length) {
+//       return [
+//         {
+//           resp: normalizedMessage,
+//           type: 'text',
+//           mainTitle: optionsArray.mainTitle || ''
+//         },
+//         {
+//           resp: optionsArray.resp,
+//           type: optionsArray.type || '',
+//           mainTitle: optionsArray.mainTitle || ''
+//         }
+//       ];
+//     }
+
+//     if (normalizedMessage && (!optionsArray || !Array.isArray(optionsArray.resp) || !optionsArray.resp.length)) {
+//       return {
+//         resp: normalizedMessage,
+//         type: 'text',
+//         mainTitle: ''
+//       };
+//     }
+
+//     if (!normalizedMessage && optionsArray && Array.isArray(optionsArray.resp) && optionsArray.resp.length) {
+//       return {
+//         resp: optionsArray.resp,
+//         type: optionsArray.type || '',
+//         mainTitle: optionsArray.mainTitle || ''
+//       };
+//     }
+
 //     return {
 //       resp: '🙏Please try again in a little while.',
 //       type: 'text',
@@ -118,15 +98,18 @@ module.exports = handleConversation;
 //     };
 
 //   } catch (error) {
-//     console.error('Error in handling conversation:', error);
+//     console.error('Error in handleConversation:', error);
 //     return {
 //       resp: 'An unexpected error occurred.',
-//       type: 'text'
+//       type: 'text',
+//       mainTitle: ''
 //     };
 //   }
 // };
 
 // module.exports = handleConversation;
+
+
 
 
 

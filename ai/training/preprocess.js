@@ -96,46 +96,8 @@ console.log(conversationHistory);
             ? mandatoryFields.map(field => `- ${field.field || field}`).join('\n')
             : '✅ No mandatory fields required.'
         }
-        
     `.trim();
     return prompt;
 };
 
 module.exports = generateDynamicPrompt;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  

@@ -107,32 +107,7 @@ const getSignedUrlForUpload = async (req, res, next) => {
     }
 };
 
-// save to permenent folde
-// const saveFileToPermenmt = async (req, res) => {
-//     if (!req.user || !req.user.userId) {
-//         return res.status(401).json({ success: false, message: "User not found" });
-//     }
-
-//     const tempKey = req?.query?.tempKey;
-//     const filename = req?.query?.filename;
-//     const userId = req.user.userId;
-
-//     if(!tempKey || !filename) return;
-
-//     try {
-//         const { permanentKey, permanentUrl } = await chatBotService.moveFileToPermanent(tempKey, userId, filename);
-
-//         if (!permanentKey || !permanentUrl) {
-//             return;
-//         }
-
-//         return res.status(200).json({ success: true, permanentKey, permanentUrl });
-//     } catch (err) {
-//         console.error("Move file error:", err);
-//         return res.status(500).json({ success: false, message: err.message });
-//     }
-// };
-
+// save to permenent folder
 const saveFileToPermenmt = async (req, res) => {
     if (!req.user || !req.user.userId) {
         return res.status(401).json({ success: false, message: "User not found" });
@@ -148,11 +123,8 @@ const saveFileToPermenmt = async (req, res) => {
         const movedFile = await chatBotService.moveFileToPermanent(tempKey, userId, filename);
 
         if (!movedFile) {
-            // File not found or failed to move
             return res.status(404).json({ success: false, message: "Temp file not found or could not be moved" });
         }
-
-        // Now safe to destructure
         const { permanentKey, permanentUrl } = movedFile;
 
         return res.status(200).json({ success: true, permanentKey, permanentUrl });
@@ -161,7 +133,6 @@ const saveFileToPermenmt = async (req, res) => {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
-
 
 // delete uploads file
 const deleteUploadFiles = async (req, res) => {

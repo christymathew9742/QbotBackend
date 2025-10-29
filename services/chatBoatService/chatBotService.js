@@ -6,6 +6,22 @@ const storage = new Storage({
   keyFilename: path.join(process.cwd(), 'gcs-key.json'),
 });
 const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
+const ffmpeg = require("fluent-ffmpeg");
+const fs = require("fs");
+const os = require("os");
+const ffmpegPath = require("ffmpeg-static");
+const archiver = require("archiver");
+const sharp = require("sharp");
+
+ffmpeg.setFfmpegPath(ffmpegPath);
+
+const LIMITS = {
+    IMAGE_MB: parseFloat(process.env.IMG_LIMIT_MB) || 5,
+    VIDEO_MB: parseFloat(process.env.VID_LIMIT_MB) || 15.7,
+    AUDIO_MB: parseFloat(process.env.AUD_LIMIT_MB) || 15,
+    DOC_MB: parseFloat(process.env.DOC_LIMIT_MB) || 100,
+};
+
 
 // Creating a new ChatBot with unique title validation
 const createChatBot = async (chatBotData) => {
@@ -138,44 +154,134 @@ const getSignedUrlForUpload = async (userId, filename, contentType) => {
     };
 };
 
-//move file to permanent
-const moveFileToPermanent = async (tempKey, userId, filename) => {
+async function compressImage(inputPath, outputPath) {
+    try {
+        await sharp(inputPath)
+        .rotate()
+        .toFormat("webp", { quality: 80 })
+        .toFile(outputPath);
+        return fs.statSync(outputPath).size;
+    } catch (err) {
+        console.warn("⚠️ Image compression failed:", err.message);
+        return fs.statSync(inputPath).size;
+    }
+}
+
+async function compressAudio(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        ffmpeg(inputPath)
+        .audioBitrate("128k")
+        .save(outputPath)
+        .on("end", () => resolve(fs.statSync(outputPath).size))
+        .on("error", reject);
+    });
+}
+
+const compressVideo = async (inputPath, outputPath, maxBytes) => {
+    let crf = 24;
+    let compressedSize = fs.statSync(inputPath).size;
+    while (compressedSize > maxBytes && crf <= 40) {
+        await new Promise((resolve, reject) => {
+        ffmpeg(inputPath)
+            .outputOptions([
+                "-vcodec libx264",
+                `-crf ${crf}`,
+                "-preset veryfast",
+                "-movflags +faststart",
+            ])
+            .save(outputPath)
+            .on("end", resolve)
+            .on("error", reject);
+        });
+        compressedSize = fs.statSync(outputPath).size;
+        if (compressedSize > maxBytes) crf += 2;
+        else break;
+    }
+    return compressedSize;
+}
+
+const compressDocument = async (inputPath, outputPath) => {
+    return new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(outputPath);
+        const archive = archiver("zip", { zlib: { level: 9 } });
+        output.on("close", () => resolve(fs.statSync(outputPath).size));
+        archive.on("error", reject);
+        archive.pipe(output);
+        archive.file(inputPath, { name: path.basename(inputPath) });
+        archive.finalize();
+    });
+}
+
+const  moveFileToPermanent = async (tempKey, userId, filename) => {
     try {
         if (!tempKey.startsWith(`temp/${userId}/`)) {
             console.warn(`Temp file does not belong to user ${userId}: ${tempKey}`);
-            return null; 
+            return null;
         }
 
-        const tempFile = bucket?.file(tempKey);
+        const tempFile = bucket.file(tempKey);
         const [exists] = await tempFile.exists();
-        if (!exists) {
-            return null;
+        if (!exists) return null;
+
+        const tempLocalPath = path.join(os.tmpdir(), filename);
+        await tempFile.download({ destination: tempLocalPath });
+
+        const ext = path.extname(filename).toLowerCase();
+        const fileSize = fs.statSync(tempLocalPath).size;
+        const maxBytes = (mb) => mb * 1024 * 1024;
+        let finalLocalPath = tempLocalPath;
+
+        const isVideo = [".mp4", ".mov", ".avi", ".mkv"].includes(ext);
+        const isImage = [".jpg", ".jpeg", ".png", ".webp"].includes(ext);
+        const isAudio = [".mp3", ".wav", ".aac", ".ogg", ".m4a"].includes(ext);
+        const isDoc = [".pdf", ".docx", ".xlsx", ".pptx"].includes(ext);
+
+        const compressedPath = path.join(os.tmpdir(), `compressed_${filename}`);
+
+        if (isVideo && fileSize > maxBytes(LIMITS.VIDEO_MB)) {
+            await compressVideo(tempLocalPath, compressedPath, maxBytes(LIMITS.VIDEO_MB));
+            finalLocalPath = compressedPath;
+        } else if (isImage && fileSize > maxBytes(LIMITS.IMAGE_MB)) {
+            await compressImage(tempLocalPath, compressedPath);
+            finalLocalPath = compressedPath;
+        } else if (isAudio && fileSize > maxBytes(LIMITS.AUDIO_MB)) {
+            await compressAudio(tempLocalPath, compressedPath);
+            finalLocalPath = compressedPath;
+        } else if (isDoc && fileSize > maxBytes(LIMITS.DOC_MB)) {
+            await compressDocument(tempLocalPath, compressedPath);
+            finalLocalPath = compressedPath;
         }
 
         let permanentKey = `createbots/${userId}/${filename}`;
         let permanentFile = bucket.file(permanentKey);
-        let [permExists] = await permanentFile.exists();
+        const [permExists] = await permanentFile.exists();
 
         if (permExists) {
             const timestamp = Date.now();
-            const fileParts = filename.split('.');
-            const name = fileParts.slice(0, -1).join('.');
-            const ext = fileParts[fileParts.length - 1];
-            permanentKey = `createbots/${userId}/${name}_${timestamp}.${ext}`;
+            const baseName = path.basename(filename, ext);
+            permanentKey = `createbots/${userId}/${baseName}_${timestamp}${ext}`;
             permanentFile = bucket.file(permanentKey);
         }
 
-        await tempFile.copy(permanentFile);
-        await tempFile.delete();
+        await bucket.upload(finalLocalPath, {
+            destination: permanentKey,
+            resumable: false,
+            gzip: true,
+        });
 
+        await fs.promises.unlink(tempLocalPath).catch(() => {});
+        if (finalLocalPath !== tempLocalPath && fs.existsSync(finalLocalPath)) {
+            await fs.promises.unlink(finalLocalPath).catch(() => {});
+        }
+
+        await tempFile.delete();
         const permanentUrl = `https://storage.googleapis.com/${bucket.name}/${permanentKey}`;
         return { permanentKey, permanentUrl };
-
     } catch (error) {
-        console.error(`Failed to move temp file to permanent: ${tempKey} → ${filename}`, error.message);
+        console.error(`❌ Failed to move temp file: ${error.message}`);
         return null;
     }
-};
+}
 
 const deleteUploadFiles = async (fileKey, chatbotId, userId) => {
     if (!fileKey || (Array.isArray(fileKey) && fileKey.length === 0)) return;
