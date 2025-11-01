@@ -16,10 +16,10 @@ const sharp = require("sharp");
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 const LIMITS = {
-    IMAGE_MB: parseFloat(process.env.IMG_LIMIT_MB) || 5,
-    VIDEO_MB: parseFloat(process.env.VID_LIMIT_MB) || 15.7,
-    AUDIO_MB: parseFloat(process.env.AUD_LIMIT_MB) || 15,
-    DOC_MB: parseFloat(process.env.DOC_LIMIT_MB) || 100,
+    IMAGE_MB: parseFloat(process.env.IMG_LIMIT_MB) || 2,
+    VIDEO_MB: parseFloat(process.env.VID_LIMIT_MB) || 10,
+    AUDIO_MB: parseFloat(process.env.AUD_LIMIT_MB) || 10,
+    DOC_MB: parseFloat(process.env.DOC_LIMIT_MB) || 10,
 };
 
 
@@ -212,7 +212,7 @@ const compressDocument = async (inputPath, outputPath) => {
     });
 }
 
-const  moveFileToPermanent = async (tempKey, userId, filename) => {
+const moveFileToPermanent = async (tempKey, userId, filename) => {
     try {
         if (!tempKey.startsWith(`temp/${userId}/`)) {
             console.warn(`Temp file does not belong to user ${userId}: ${tempKey}`);
@@ -225,13 +225,16 @@ const  moveFileToPermanent = async (tempKey, userId, filename) => {
 
         const tempLocalPath = path.join(os.tmpdir(), filename);
         await tempFile.download({ destination: tempLocalPath });
+        let ext = path.extname(filename)?.toLowerCase() || '';
+        if (!ext && tempKey) ext = path.extname(tempKey)?.toLowerCase() || '';
+        if (!ext) ext = '.png'; 
+        if (!filename.endsWith(ext)) filename = `${filename}${ext}`;
 
-        const ext = path.extname(filename).toLowerCase();
         const fileSize = fs.statSync(tempLocalPath).size;
         const maxBytes = (mb) => mb * 1024 * 1024;
         let finalLocalPath = tempLocalPath;
 
-        const isVideo = [".mp4", ".mov", ".avi", ".mkv"].includes(ext);
+        const isVideo = [".mp4", "3gp"].includes(ext);
         const isImage = [".jpg", ".jpeg", ".png", ".webp"].includes(ext);
         const isAudio = [".mp3", ".wav", ".aac", ".ogg", ".m4a"].includes(ext);
         const isDoc = [".pdf", ".docx", ".xlsx", ".pptx"].includes(ext);
@@ -252,13 +255,23 @@ const  moveFileToPermanent = async (tempKey, userId, filename) => {
             finalLocalPath = compressedPath;
         }
 
+        if (!path.extname(finalLocalPath)) {
+            const newPath = `${finalLocalPath}${ext}`;
+            try {
+                fs.renameSync(finalLocalPath, newPath);
+                finalLocalPath = newPath;
+            } catch (renameErr) {
+                console.warn(`⚠️ Failed to rename file with extension: ${renameErr.message}`);
+            }
+        }
+
         let permanentKey = `createbots/${userId}/${filename}`;
         let permanentFile = bucket.file(permanentKey);
         const [permExists] = await permanentFile.exists();
 
         if (permExists) {
             const timestamp = Date.now();
-            const baseName = path.basename(filename, ext);
+            const baseName = path.basename(filename, ext || '');
             permanentKey = `createbots/${userId}/${baseName}_${timestamp}${ext}`;
             permanentFile = bucket.file(permanentKey);
         }
@@ -275,13 +288,15 @@ const  moveFileToPermanent = async (tempKey, userId, filename) => {
         }
 
         await tempFile.delete();
+
         const permanentUrl = `https://storage.googleapis.com/${bucket.name}/${permanentKey}`;
         return { permanentKey, permanentUrl };
+
     } catch (error) {
         console.error(`❌ Failed to move temp file: ${error.message}`);
         return null;
     }
-}
+};
 
 const deleteUploadFiles = async (fileKey, chatbotId, userId) => {
     if (!fileKey || (Array.isArray(fileKey) && fileKey.length === 0)) return;

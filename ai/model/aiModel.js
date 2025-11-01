@@ -70,7 +70,7 @@ const enqueueRequest = (userId, taskFn, promptId, clearUserSessionData = () => {
         if (userQueue.awaitingResponse) {
             clearUserSessionData(userId);
             resetUserInput();
-            resolve("⚠️ Oops! I'm still replying. Please hold on before sending more.");
+            resolve("Please wait a moment...");
             return;
         }
 
@@ -169,7 +169,7 @@ const generateAIResponse = async (prompt, userId, clearUserSessionData = () => {
 
             if (!responseText) {
                 console.warn(`[${userId}] Empty response from ${provider}`);
-                responseText = "⚠️ Sorry, I couldn’t generate a response. Please try again.";
+                responseText = "Sorry, I couldn’t respond just now. Please try again.";
             }
 
             const questionDetected = isQuestion(responseText);
