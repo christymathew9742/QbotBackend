@@ -6,33 +6,34 @@ const handleConversation = async (userData) => {
 
     if (aiResponse?.message) {
       return {
-        resp: aiResponse.message,
-        type: 'text'
+        resp: aiResponse?.message,
+        type: 'text',
+        FlowId: aiResponse?.FlowId,
+        mainTitle: ''
       };
     };
 
     if (aiResponse?.optionsArray) {
-      return {
-        resp: aiResponse.optionsArray.items,
-        type: 'list',
-        mainTitle: aiResponse.optionsArray.mainTitle,
-      }
+      return aiResponse?.optionsArray;
     };
+
     return {
-      resp: '🙏Please try again in a little while.',
-      type: 'text'
+      resp: { message: `🤔 Sorry ${userData?.profileName} I got a bit mixed up. Let’s begin again!` },
+      type: 'text',
+      FlowId: '',
+      mainTitle: ''
     };
     
   } catch (error) {
     console.error('Error in handling conversation:', error);
-    return {
-      resp: 'An unexpected error occurred.',
-      type: 'text'
-    };
   }
 };
 
 module.exports = handleConversation;
+
+
+
+
 
 
 

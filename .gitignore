@@ -26,3 +26,9 @@ node_modules
 .env 
 #ignore uploads
 uploads
+#ignore GCS files
+gcs-key.json
+#ignore vertex files
+vertex-api-key.json
+
+
