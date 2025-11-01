@@ -2,9 +2,19 @@ const { ChatBotModel } = require('../../models/chatBotModel/chatBotModel');
 const { errorResponse } = require('../../utils/errorResponse');
 const { Storage } = require("@google-cloud/storage");
 const path = require('path');
-const storage = new Storage({
-  keyFilename: path.join(process.cwd(), 'gcs-key.json'),
-});
+
+let storage;
+if (process.env.GCS_CREDENTIALS) {
+  storage = new Storage({
+    credentials: JSON.parse(process.env.GCS_CREDENTIALS),
+  });
+} else {
+  const path = require('path');
+  storage = new Storage({
+    keyFilename: path.join(process.cwd(), 'gcs-key.json'),
+  });
+}
+
 const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 const ffmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
