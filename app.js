@@ -65,4 +65,3 @@ app.use(bodyParser.json());
 app.use(errorHandler);
 
 module.exports = app;
-
