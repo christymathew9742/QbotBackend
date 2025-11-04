@@ -273,6 +273,7 @@ const createAIResponse = async (chatData) => {
 
             const conversationText = session.conversation.map(c => `${c.sender}: ${c.message}`);
             const generatedPrompt = await generateDynamicPrompt(conversationText, userPrompt, flowTrainingData);
+            console.log(generatedPrompt,'generatedPromptgeneratedPrompt')
             let aiResponse = await generateAIResponse(generatedPrompt, userPhone, clearUserSessionData, resetUserInput);
             const options = safeParseOptions(aiResponse, aiResponse?.slot);
             updateConversationHistory(userPhone, userPrompt, aiResponse);

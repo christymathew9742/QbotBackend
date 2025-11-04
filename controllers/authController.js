@@ -6,8 +6,7 @@ const {
     getWhatsAppUserDetails,
     whtatsAppGlobalUserService,
 } = require('../services/authService');
-const fs = require('fs');
-const path = require('path');
+
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const { baseUrl } = require('../config/whatsappConfig');
@@ -16,8 +15,7 @@ const {validateToken, generateOtpEmailTemplate} = require('../utils/common');
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const { generateOTP } = require('../utils/otp');
-const nodemailer = require('nodemailer'); // or SMS API
-const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer'); 
 const sendSmsOtp =require('../utils/sendSms')
 
 // Sign up a new user
@@ -102,7 +100,7 @@ const testWhatsapConfig = async (req, res, next) => {
         if (!userId || !messageText || !phoneNumber) {
             return res.status(400).json({
                 success: false,
-                error: 'Missing required fields: userId, sendmessage (messageText), or sendnumber (phoneNumber)'
+                error: 'Missing required fields: userId, send message (messageText), or sendnumber (phoneNumber)'
             });
         }
 
@@ -154,17 +152,68 @@ const testWhatsapConfig = async (req, res, next) => {
 };
 
 //update user data
+// const updateUser = async (req, res, next) => {
+//     try {
+//         const userId = req.user?.userId;
+//         if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+//         const existingUser = await User.findById(userId);
+//         if (!existingUser) return res.status(404).json({ success: false, message: 'User not found' });
+
+//         const updateFields = {};
+
+//         if(req.file){
+//             updateFields.profilepic = {
+//                 originalName: req.file.originalname,
+//                 mimeType: req.file.mimetype,
+//                 size: req.file.size,
+//                 fileName: req.fileName,
+//                 fileUrl: req.file.gcsUrl,
+//             };
+//         }
+
+//         ['displayname', 'username', 'email', 'phone', 'bio', 'profilepic','country', 'state', 'postalcode', 'taxId', 'accesstoken','facebook', 'twitter', 'linkedin', 'instagram', 'phonenumberid'].forEach(field => {
+//             if (req.body[field] !== undefined) updateFields[field] = req.body[field];
+//         });
+
+//         if (req.body.generateToken === true && existingUser.generateToken !== true) {
+//             const token = jwt.sign(
+//                 { userId: existingUser._id.toString(), issuedAt: new Date().toISOString() },
+//                 process.env.JWT_SECRET,
+//                 { expiresIn: '7d' }
+//             );
+//             updateFields.verifytoken = token;
+//             updateFields.generateToken = true;
+//         }
+
+//         const updatedUser = await updateUserService(userId, updateFields);
+
+//         res.status(200).json({
+//             success: true,
+//             message: 'Profile updated successfully',
+//             data: updatedUser
+//         });
+//     } catch (error) {
+//         console.error('Update user error:', error);
+//         next(new Error(`User update failed: ${error.message}`));
+//     }
+// };
+
 const updateUser = async (req, res, next) => {
     try {
         const userId = req.user?.userId;
-        if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
 
         const existingUser = await User.findById(userId);
-        if (!existingUser) return res.status(404).json({ success: false, message: 'User not found' });
+        if (!existingUser) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
 
         const updateFields = {};
 
-        if(req.file){
+        if (req.file) {
             updateFields.profilepic = {
                 originalName: req.file.originalname,
                 mimeType: req.file.mimetype,
@@ -174,9 +223,24 @@ const updateUser = async (req, res, next) => {
             };
         }
 
-        ['displayname', 'username', 'email', 'phone', 'bio', 'profilepic','country', 'state', 'postalcode', 'taxId', 'accesstoken','facebook', 'twitter', 'linkedin', 'instagram', 'phonenumberid'].forEach(field => {
+        [
+            'displayname', 'username', 'email', 'phone', 'bio', 'profilepic', 'country', 'state',
+            'postalcode', 'taxId', 'accesstoken', 'facebook', 'twitter', 'linkedin',
+            'instagram', 'phonenumberid'
+        ].forEach(field => {
             if (req.body[field] !== undefined) updateFields[field] = req.body[field];
         });
+
+        if (updateFields.phonenumberid && updateFields.phonenumberid !== existingUser.phonenumberid) {
+            const existingPhoneOwner = await User.findOne({ phonenumberid: updateFields.phonenumberid });
+
+            if (existingPhoneOwner && existingPhoneOwner._id.toString() !== userId) {
+                return res.status(400).json({
+                    message: 'This phone number ID is already associated with another account.',
+                    success:false,
+                });
+            }
+        }
 
         if (req.body.generateToken === true && existingUser.generateToken !== true) {
             const token = jwt.sign(
@@ -190,14 +254,18 @@ const updateUser = async (req, res, next) => {
 
         const updatedUser = await updateUserService(userId, updateFields);
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
-            message: 'Profile updated successfully',
+            message: 'API configuration updated successfully.',
             data: updatedUser
         });
+
     } catch (error) {
         console.error('Update user error:', error);
-        next(new Error(`User update failed: ${error.message}`));
+        return res.status(500).json({
+            success: false,
+            message: `User update failed: ${error.message}`
+        });
     }
 };
 

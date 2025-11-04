@@ -198,18 +198,40 @@ const generateDynamicFlowData = async (flowData, ConsultantMessage) => {
         if (context.lastField !== field && field !== 'messages') context.messageBuffer = [];
         context.lastField = field;
 
+        // if (field === 'messages') {
+        //   lastNodeType = 'message';
+        //   const cleaned = value?.replace(/<[^>]+>/g, '').trim();
+        //   if (cleaned) context.messageBuffer.push(cleaned);
+        //   if (Array.isArray(fileData) && fileData.length) {
+        //     const fileId = fileData.filter(f => f.mId ? f.mId : 
+        //       f.fileId ).map(f => f.mId ? f.mId : f.fileId).join(', ');
+        //         if (fileId) context.messageBuffer.push(fileId);
+        //   }
+        //   const shouldFlush = nextField?.field !== 'messages' || isLast;
+        //   if (shouldFlush && context.messageBuffer.length) {
+        //     const message = context.messageBuffer.join(', ');
+        //     stepInstructions.push(
+        //       `- Initial Message:\n - \`\`\`${message},\`\`\` - Ask this exactly without rephrasing.`
+        //     );
+        //     context.messageBuffer = [];
+        //   }
+        // }
+
         if (field === 'messages') {
           lastNodeType = 'message';
           const cleaned = value?.replace(/<[^>]+>/g, '').trim();
           if (cleaned) context.messageBuffer.push(cleaned);
           if (Array.isArray(fileData) && fileData.length) {
-            const fileId = fileData.filter(f => f.mId ? f.mId : 
-              f.fileId ).map(f => f.mId ? f.mId : f.fileId).join(', ');
-                if (fileId) context.messageBuffer.push(fileId);
+            const fileIds = fileData
+              .map(f => f.mId || f.fileId)
+              .filter(Boolean)
+              .join(', ');
+            if (fileIds) context.messageBuffer.push(fileIds);
           }
-          const shouldFlush = nextField?.field !== 'messages' || isLast;
+          const shouldFlush = !nextField || nextField.field !== 'messages' || isLast;
+          
           if (shouldFlush && context.messageBuffer.length) {
-            const message = context.messageBuffer.join(', ');
+            const message = context.messageBuffer.join(', ').replace(/,+$/, '');
             stepInstructions.push(
               `- Initial Message:\n - \`\`\`${message},\`\`\` - Ask this exactly without rephrasing.`
             );
