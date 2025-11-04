@@ -1,23 +1,33 @@
 const { errorResponse } = require('../../utils/errorResponse');
 const chatBotService = require('../../services/chatBoatService/chatBotService')
-const { v4: uuidv4 } = require("uuid");
+const { ChatBotModel } = require('../../models/chatBotModel/chatBotModel');
 
 // Create cahtBot data
 const createChatBot = async (req, res, next) => {
     try {
         if (!req.user || !req.user.userId) {
-            return next(errorResponse('user not responding ', 401));
+            return next(errorResponse('User not authenticated', 401));
         }
-        
-        const chatBotData = req.body;
-        chatBotData.user = req.user.userId;
+
+        const userId = req.user.userId;
+        const chatBotData = { ...req.body, user: userId };
+
+        const botCount = await ChatBotModel.countDocuments({ user: userId });
+
+        if (botCount >= 10) {
+            const error ='Maximum chatbot limit (10) reached. Cannot create more.';
+            res.status(400).json({ success: false, error});
+            next(errorResponse(error));
+            return;
+        }
 
         const chatBotResponse = await chatBotService.createChatBot(chatBotData);
-        res.status(201).json({ success: true, data: chatBotResponse });
+        res.status(201).json({ success: true, data: chatBotResponse, message:"Saved successfully." });
     } catch (error) {
-        next(error);
+        next(errorResponse(error));
     }
 };
+
 
 // Get all chatBot for the authenticated user
 const getAllChatBot = async (req, res, next) => {
@@ -62,7 +72,7 @@ const updateChatBot = async (req, res, next) => {
         if (!updatedChatBot) {
             return res.status(404).json({ success: false, message: 'ChatBot not found or unauthorized' });
         }
-        res.status(200).json({ success: true, data: updatedChatBot });
+        res.status(200).json({ success: true, data: updatedChatBot, message: "Updated successfully." });
     } catch (error) {
         next(error);
     }

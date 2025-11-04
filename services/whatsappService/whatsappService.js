@@ -6,9 +6,9 @@ const handleConversation = async (userData) => {
 
     if (aiResponse?.message) {
       return {
-        resp: aiResponse?.message,
+        resp: aiResponse?.message || "",
         type: 'text',
-        FlowId: aiResponse?.FlowId,
+        FlowId: aiResponse?.FlowId || "",
         mainTitle: ''
       };
     };
