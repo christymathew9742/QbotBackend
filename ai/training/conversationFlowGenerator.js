@@ -80,7 +80,7 @@ const generateDynamicFlowData = async (flowData, ConsultantMessage) => {
   const fieldNames = new Set();
   let hasPreference = false;
 
-  for (const node of flowData.nodes) {
+  for (const node of flowData?.nodes) {
     for (const input of node?.data?.inputs || []) {
       if (input?.field === 'replay') {
         const matches = input.value?.match(/\[([^\]]+)\]/g) || [];
@@ -197,25 +197,6 @@ const generateDynamicFlowData = async (flowData, ConsultantMessage) => {
 
         if (context.lastField !== field && field !== 'messages') context.messageBuffer = [];
         context.lastField = field;
-
-        // if (field === 'messages') {
-        //   lastNodeType = 'message';
-        //   const cleaned = value?.replace(/<[^>]+>/g, '').trim();
-        //   if (cleaned) context.messageBuffer.push(cleaned);
-        //   if (Array.isArray(fileData) && fileData.length) {
-        //     const fileId = fileData.filter(f => f.mId ? f.mId : 
-        //       f.fileId ).map(f => f.mId ? f.mId : f.fileId).join(', ');
-        //         if (fileId) context.messageBuffer.push(fileId);
-        //   }
-        //   const shouldFlush = nextField?.field !== 'messages' || isLast;
-        //   if (shouldFlush && context.messageBuffer.length) {
-        //     const message = context.messageBuffer.join(', ');
-        //     stepInstructions.push(
-        //       `- Initial Message:\n - \`\`\`${message},\`\`\` - Ask this exactly without rephrasing.`
-        //     );
-        //     context.messageBuffer = [];
-        //   }
-        // }
 
         if (field === 'messages') {
           lastNodeType = 'message';

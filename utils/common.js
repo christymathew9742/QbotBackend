@@ -110,13 +110,13 @@ const getValidationHint = (type, requiredFields = []) => {
     const hints = {
         Text: `${baseText} Text:\n- Keys: name, title, location, reason\n- ${globalKeysNote}\n- Format: alphabets only (e.g., John Doe)\n- Error: "Enter a valid [fieldName]"`,
         Number: `${baseText} Number:\n- Keys: age(1–100), quantity, amount, count\n- ${globalKeysNote}\n- Format: digits only (e.g., 25)\n- Error: "Enter a valid [fieldName]"`,
-        Email: `${baseText} Email:\n- Keys: email, mail, address\n- ${globalKeysNote}\n- Format: valid email (e.g., a@b.com)\n- Error: "Enter a valid email"`,
-        Phone: `${baseText} Phone:\n- Keys: phone, mobile, contact\n- ${globalKeysNote}\n- Format: 6–12 digits (e.g., 9876543210)\n- Error: "Enter a valid phone"`,
-        Date: `${baseText} Date:\n- Keys: date, birthdate, meeting\n- ${globalKeysNote}\n- Format: any common date; normalize to DD-MM-YYYY\n- Error: "Enter a valid date"`,
-        Time: `${baseText} Time:\n- Keys: time, slot, meeting\n- ${globalKeysNote}\n- Format: HH:MM (24h, e.g., 14:30)\n- Error: "Enter a valid time"`,
-        URL: `${baseText} URL:\n- Keys: website, link, portfolio\n- ${globalKeysNote}\n- Format: http/https (e.g., https://site.com)\n- Error: "Enter a valid URL"`,
-        Location: `${baseText} Location:\n- Keys: location, coordinates, map\n- ${globalKeysNote}\n- Format: lat,long (e.g., 12.97,77.59)\n- Error: "Enter valid coordinates"`,
-        File: `${baseText} File:\n- Keys: document, attachment, image, video, audio, resume\n- ${globalKeysNote}\n- Format: validate only type relevant to the AI prompt (image, video, audio, document, resume)\n- Error: "Upload a valid file of the requested type only"`
+        Email: `${baseText} Email:\n- Keys: email, mail, address\n- ${globalKeysNote}\n- Format: valid email (e.g., a@b.com)\n- Error: "Enter a valid [fieldName]"`,
+        Phone: `${baseText} Phone:\n- Keys: phone, mobile, contact\n- ${globalKeysNote}\n- Format: 6–12 digits (e.g., 9876543210)\n- Error: "Enter a valid [fieldName]"`,
+        Date: `${baseText} Date:\n- Keys: date, birthdate, meeting\n- ${globalKeysNote}\n- Format: any common date; normalize to DD-MM-YYYY\n- Error: "Enter a valid [fieldName]"`,
+        Time: `${baseText} Time:\n- Keys: time, slot, meeting\n- ${globalKeysNote}\n- Format: HH:MM (24h, e.g., 14:30)\n- Error: "Enter a valid [fieldName]"`,
+        URL: `${baseText} URL:\n- Keys: website, link, portfolio\n- ${globalKeysNote}\n- Format: http/https (e.g., https://site.com)\n- Error: "Enter a valid [fieldName]"`,
+        Location: `${baseText} Location:\n- Keys: location, coordinates, map\n- ${globalKeysNote}\n- Format: lat,long (e.g., lat: 12.97,77.59,  Lng: long: 75.9861648)\n- Error: "Enter valid [fieldName]"`,
+        File: `${baseText} File:\n- Allowed types: document, attachment, image, video, audio, resume\n- ${globalKeysNote}\n- Validation: accepts only valid file uploads (e.g., filename.extension)\n- Restrictions: no plain text, numbers, or special characters — must include a valid filename and extension\n- Error: "Upload a valid [fieldName] file"`
     };
     return hints[type] || '';
 };

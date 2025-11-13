@@ -2,6 +2,7 @@ const { ChatBotModel } = require('../../models/chatBotModel/chatBotModel');
 const { errorResponse } = require('../../utils/errorResponse');
 const { Storage } = require("@google-cloud/storage");
 const path = require('path');
+const mime = require("mime-types");
 
 let storage;
 if (process.env.GCS_CREDENTIALS) {
@@ -142,15 +143,33 @@ const deleteChatBot = async (id, userId) => {
     }
 };
 
-//get Signed url for upload
-const getSignedUrlForUpload = async (userId, filename, contentType) => {
+function safeStatSync(filePath) {
+    try {
+        if (!fs.existsSync(filePath)) return null;
+        return fs.statSync(filePath);
+    } catch (e) {
+        return null;
+    }
+}
 
+function extFromContentType(contentType) {
+    if (!contentType) return "";
+    const ext = mime.extension(contentType);
+    return ext ? `.${ext}` : "";
+}
+
+function ensurePathHasExt(p, ext) {
+    if (!path.extname(p) && ext) return `${p}${ext}`;
+    return p;
+}
+
+const getSignedUrlForUpload = async (userId, filename, contentType) => {
     const objectKey = `temp/${userId}/${filename}`;
     const file = bucket.file(objectKey);
     const options = {
         version: "v4",
         action: "write",
-        expires: Date.now() + 15 * 60 * 1000, 
+        expires: Date.now() + 15 * 60 * 1000,
         contentType,
     };
 
@@ -160,67 +179,181 @@ const getSignedUrlForUpload = async (userId, filename, contentType) => {
     return {
         uploadUrl,
         publicUrl,
-        key: objectKey, 
+        key: objectKey,
     };
 };
 
-async function compressImage(inputPath, outputPath) {
+async function compressImage(inputPath, outputPath, originalExt) {
     try {
-        await sharp(inputPath)
-        .rotate()
-        .toFormat("webp", { quality: 80 })
-        .toFile(outputPath);
-        return fs.statSync(outputPath).size;
+        const extNoDot = (originalExt || "").replace(".", "").toLowerCase();
+        let format = extNoDot || "webp"; 
+        if (!["jpg", "jpeg", "png", "webp", "tiff", "gif"].includes(format)) {
+            format = "webp";
+        }
+
+        const desiredOutputPath = ensurePathHasExt(outputPath, `.${format}`);
+        let pipeline = sharp(inputPath).rotate();
+
+        if (format === "jpeg" || format === "jpg") {
+            pipeline = pipeline.jpeg({ quality: 80 });
+        } else if (format === "png") {
+            pipeline = pipeline.png({ compressionLevel: 8, quality: 80 });
+        } else if (format === "webp") {
+            pipeline = pipeline.webp({ quality: 80 });
+        } else {
+            pipeline = pipeline.webp({ quality: 80 });
+        }
+
+        await pipeline.toFile(desiredOutputPath);
+
+        const stats = safeStatSync(desiredOutputPath);
+        return {
+            size: stats ? stats.size : null,
+            path: desiredOutputPath,
+            ext: `.${format}`,
+            contentType: mime.lookup(format) || "application/octet-stream",
+        };
     } catch (err) {
         console.warn("⚠️ Image compression failed:", err.message);
-        return fs.statSync(inputPath).size;
+        const stats = safeStatSync(inputPath);
+        return {
+        size: stats ? stats.size : null,
+        path: inputPath,
+        ext: path.extname(inputPath) || ".png",
+        contentType: mime.lookup(path.extname(inputPath)) || "application/octet-stream",
+        };
     }
 }
 
-async function compressAudio(inputPath, outputPath) {
+async function compressAudio(inputPath, outputPath, originalExt) {
     return new Promise((resolve, reject) => {
+        const ext = (originalExt && originalExt.replace(".", "")) || "mp3";
+        const desiredOutputPath = ensurePathHasExt(outputPath, `.${ext}`);
+
         ffmpeg(inputPath)
+        .noVideo()
         .audioBitrate("128k")
-        .save(outputPath)
-        .on("end", () => resolve(fs.statSync(outputPath).size))
-        .on("error", reject);
+        .format(ext)
+        .on("end", () => {
+            const stats = safeStatSync(desiredOutputPath);
+            resolve({
+            size: stats ? stats.size : null,
+            path: desiredOutputPath,
+            ext: `.${ext}`,
+            contentType: mime.lookup(ext) || "audio/mpeg",
+            });
+        })
+        .on("error", (err) => reject(err))
+        .save(desiredOutputPath);
     });
 }
 
 const compressVideo = async (inputPath, outputPath, maxBytes) => {
-    let crf = 24;
-    let compressedSize = fs.statSync(inputPath).size;
-    while (compressedSize > maxBytes && crf <= 40) {
-        await new Promise((resolve, reject) => {
-        ffmpeg(inputPath)
+    const desiredOutputPath = ensurePathHasExt(outputPath, ".mp4");
+    const runFfmpeg = (crfVal, scale) =>
+        new Promise((resolve, reject) => {
+        const ff = ffmpeg(inputPath)
+            .videoCodec("libx264")
+            .audioCodec("aac")
             .outputOptions([
-                "-vcodec libx264",
-                `-crf ${crf}`,
-                "-preset veryfast",
-                "-movflags +faststart",
-            ])
-            .save(outputPath)
-            .on("end", resolve)
-            .on("error", reject);
+            `-crf ${crfVal}`,
+            "-preset veryfast",
+            "-movflags +faststart",
+            "-profile:v baseline",
+            "-level 3.0",
+            "-pix_fmt yuv420p",
+            ]);
+        if (scale) ff.videoFilters(`scale=${scale}`);
+        ff.on("end", () => resolve())
+            .on("error", (err) => reject(err))
+            .save(desiredOutputPath);
         });
-        compressedSize = fs.statSync(outputPath).size;
-        if (compressedSize > maxBytes) crf += 2;
-        else break;
+
+    try {
+        let bestStats = safeStatSync(inputPath);
+        let bestSize = bestStats ? bestStats.size : 0;
+        let bestPath = inputPath;
+
+        for (let crf = 24; crf <= 40; crf += 2) {
+            await runFfmpeg(crf);
+            const s = safeStatSync(desiredOutputPath);
+            if (!s) continue;
+            if (s.size < bestSize) {
+                bestSize = s.size;
+                bestPath = desiredOutputPath;
+            }
+            if (s.size <= maxBytes) break;
+        }
+
+        const scaleSteps = ["1280:-1", "854:-1", "640:-1"];
+        let finalStats = safeStatSync(bestPath);
+        if (finalStats && finalStats.size > maxBytes) {
+            for (const scale of scaleSteps) {
+                await runFfmpeg(32, scale);
+                const s = safeStatSync(desiredOutputPath);
+                if (s && s.size < bestSize) {
+                bestSize = s.size;
+                bestPath = desiredOutputPath;
+                }
+                if (s && s.size <= maxBytes) break;
+            }
+        }
+
+        finalStats = safeStatSync(desiredOutputPath) || safeStatSync(bestPath);
+
+        if (!finalStats) throw new Error("Video compression produced no output");
+
+        if (finalStats.size > maxBytes) {
+            console.warn(
+                `⚠️ Video could not be reduced below limit (${(
+                finalStats.size /
+                1024 /
+                1024
+                ).toFixed(2)} MB > ${(maxBytes / 1024 / 1024).toFixed(
+                2
+                )} MB). Uploading best possible version.`
+            );
+        }
+
+        return {
+            size: finalStats.size,
+            path: desiredOutputPath,
+            ext: ".mp4",
+            contentType: "video/mp4",
+        };
+    } catch (err) {
+        console.warn("⚠️ Video compression failed:", err.message);
+        const stats = safeStatSync(inputPath);
+        return {
+            size: stats ? stats.size : null,
+            path: inputPath,
+            ext: ".mp4",
+            contentType: "video/mp4",
+        };
     }
-    return compressedSize;
-}
+};
 
 const compressDocument = async (inputPath, outputPath) => {
     return new Promise((resolve, reject) => {
-        const output = fs.createWriteStream(outputPath);
+        const desiredOutputPath = ensurePathHasExt(outputPath, ".zip");
+        const output = fs.createWriteStream(desiredOutputPath);
         const archive = archiver("zip", { zlib: { level: 9 } });
-        output.on("close", () => resolve(fs.statSync(outputPath).size));
-        archive.on("error", reject);
+
+        output.on("close", () => {
+            const stats = safeStatSync(desiredOutputPath);
+            resolve({
+                size: stats ? stats.size : null,
+                path: desiredOutputPath,
+                ext: ".zip",
+                contentType: "application/zip",
+            });
+        });
+        archive.on("error", (err) => reject(err));
         archive.pipe(output);
         archive.file(inputPath, { name: path.basename(inputPath) });
         archive.finalize();
     });
-}
+};
 
 const moveFileToPermanent = async (tempKey, userId, filename) => {
     try {
@@ -233,56 +366,75 @@ const moveFileToPermanent = async (tempKey, userId, filename) => {
         const [exists] = await tempFile.exists();
         if (!exists) return null;
 
-        const tempLocalPath = path.join(os.tmpdir(), filename);
-        await tempFile.download({ destination: tempLocalPath });
-        let ext = path.extname(filename)?.toLowerCase() || '';
-        if (!ext && tempKey) ext = path.extname(tempKey)?.toLowerCase() || '';
-        if (!ext) ext = '.png'; 
+        const [metadata] = await tempFile.getMetadata().catch(() => [null]);
+        const remoteContentType = metadata?.contentType || null;
+
+        let ext = path.extname(filename)?.toLowerCase() || "";
+        if (!ext && remoteContentType) {
+            ext = extFromContentType(remoteContentType);
+        }
+        if (!ext) {
+            ext = ".bin";
+        }
+
         if (!filename.endsWith(ext)) filename = `${filename}${ext}`;
 
-        const fileSize = fs.statSync(tempLocalPath).size;
-        const maxBytes = (mb) => mb * 1024 * 1024;
-        let finalLocalPath = tempLocalPath;
+        const tempLocalPath = path.join(os.tmpdir(), `tempfile_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+        await tempFile.download({ destination: tempLocalPath });
 
-        const isVideo = [".mp4", "3gp"].includes(ext);
-        const isImage = [".jpg", ".jpeg", ".png", ".webp"].includes(ext);
+        const fileStat = safeStatSync(tempLocalPath);
+        if (!fileStat) throw new Error("Downloaded file missing");
+
+        const fileSize = fileStat.size;
+        const maxBytes = (mb) => mb * 1024 * 1024;
+
+        const isVideo = [".mp4", ".3gp", ".mov", ".mkv"].includes(ext);
+        const isImage = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff"].includes(ext);
         const isAudio = [".mp3", ".wav", ".aac", ".ogg", ".m4a"].includes(ext);
         const isDoc = [".pdf", ".docx", ".xlsx", ".pptx"].includes(ext);
 
-        const compressedPath = path.join(os.tmpdir(), `compressed_${filename}`);
+        const compressedPathBase = path.join(os.tmpdir(), `compressed_${Date.now()}_${Math.random().toString(36).slice(2)}_${path.basename(filename, ext)}`);
+
+        let finalLocalPath = tempLocalPath;
+        let finalExt = ext;
+        let finalContentType = remoteContentType || mime.lookup(ext) || "application/octet-stream";
 
         if (isVideo && fileSize > maxBytes(LIMITS.VIDEO_MB)) {
-            await compressVideo(tempLocalPath, compressedPath, maxBytes(LIMITS.VIDEO_MB));
-            finalLocalPath = compressedPath;
+            const result = await compressVideo(tempLocalPath, compressedPathBase, maxBytes(LIMITS.VIDEO_MB));
+            finalLocalPath = result.path;
+            finalExt = result.ext;
+            finalContentType = result.contentType || "video/mp4";
         } else if (isImage && fileSize > maxBytes(LIMITS.IMAGE_MB)) {
-            await compressImage(tempLocalPath, compressedPath);
-            finalLocalPath = compressedPath;
+            const result = await compressImage(tempLocalPath, compressedPathBase, ext);
+            finalLocalPath = result.path;
+            finalExt = result.ext;
+            finalContentType = result.contentType || mime.lookup(finalExt) || "image/*";
         } else if (isAudio && fileSize > maxBytes(LIMITS.AUDIO_MB)) {
-            await compressAudio(tempLocalPath, compressedPath);
-            finalLocalPath = compressedPath;
+            const result = await compressAudio(tempLocalPath, compressedPathBase, ext);
+            finalLocalPath = result.path;
+            finalExt = result.ext;
+            finalContentType = result.contentType || mime.lookup(finalExt) || "audio/*";
         } else if (isDoc && fileSize > maxBytes(LIMITS.DOC_MB)) {
-            await compressDocument(tempLocalPath, compressedPath);
-            finalLocalPath = compressedPath;
+            const result = await compressDocument(tempLocalPath, compressedPathBase);
+            finalLocalPath = result.path;
+            finalExt = result.ext;
+            finalContentType = result.contentType || "application/zip";
+        } else {
+            finalExt = path.extname(finalLocalPath) || ext;
+            finalContentType = remoteContentType || mime.lookup(finalExt) || "application/octet-stream";
         }
 
-        if (!path.extname(finalLocalPath)) {
-            const newPath = `${finalLocalPath}${ext}`;
-            try {
-                fs.renameSync(finalLocalPath, newPath);
-                finalLocalPath = newPath;
-            } catch (renameErr) {
-                console.warn(`⚠️ Failed to rename file with extension: ${renameErr.message}`);
-            }
-        }
+        let baseName = path.basename(filename, ext);
+        if (!baseName) baseName = `file_${Date.now()}`;
+        let permanentFilename = `${baseName}${finalExt}`;
 
-        let permanentKey = `createbots/${userId}/${filename}`;
+        let permanentKey = `createbots/${userId}/${permanentFilename}`;
         let permanentFile = bucket.file(permanentKey);
         const [permExists] = await permanentFile.exists();
-
         if (permExists) {
             const timestamp = Date.now();
-            const baseName = path.basename(filename, ext || '');
-            permanentKey = `createbots/${userId}/${baseName}_${timestamp}${ext}`;
+            permanentFilename = `${baseName}_${timestamp}${finalExt}`;
+            permanentKey = `createbots/${userId}/${permanentFilename}`;
             permanentFile = bucket.file(permanentKey);
         }
 
@@ -290,18 +442,19 @@ const moveFileToPermanent = async (tempKey, userId, filename) => {
             destination: permanentKey,
             resumable: false,
             gzip: true,
+            metadata: {
+                contentType: finalContentType,
+                cacheControl: "public, max-age=31536000", // optional
+            },
         });
 
-        await fs.promises.unlink(tempLocalPath).catch(() => {});
-        if (finalLocalPath !== tempLocalPath && fs.existsSync(finalLocalPath)) {
-            await fs.promises.unlink(finalLocalPath).catch(() => {});
-        }
+        try { if (fs.existsSync(tempLocalPath)) await fs.promises.unlink(tempLocalPath); } catch (e) {}
+        try { if (finalLocalPath !== tempLocalPath && fs.existsSync(finalLocalPath)) await fs.promises.unlink(finalLocalPath); } catch (e) {}
 
-        await tempFile.delete();
+        await tempFile.delete().catch(() => { /* ignore */ });
 
         const permanentUrl = `https://storage.googleapis.com/${bucket.name}/${permanentKey}`;
-        return { permanentKey, permanentUrl };
-
+        return { permanentKey, permanentUrl, contentType: finalContentType, filename: permanentFilename };
     } catch (error) {
         console.error(`❌ Failed to move temp file: ${error.message}`);
         return null;
