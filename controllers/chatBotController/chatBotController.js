@@ -22,12 +22,17 @@ const createChatBot = async (req, res, next) => {
         }
 
         const chatBotResponse = await chatBotService.createChatBot(chatBotData);
+
+        if (!chatBotResponse) {
+            return res.status(400).json({ success: false, message: 'ChatBot not found or unauthorized' });
+        }
+
         res.status(201).json({ success: true, data: chatBotResponse, message:"Saved successfully." });
     } catch (error) {
         next(errorResponse(error));
+        res.status(400).json({ success: true, message:"Failed to saveing." });
     }
 };
-
 
 // Get all chatBot for the authenticated user
 const getAllChatBot = async (req, res, next) => {
@@ -53,7 +58,7 @@ const getChatBotById = async (req, res, next) => {
     try {
             const chatBot = await chatBotService.getChatBotById(req.params.id, req.user.userId);
             if (!chatBot) {
-                return res.status(404).json({ success: false, message: 'ChatBot not found' });
+                return res.status(400).json({ success: false, message: 'ChatBot not found' });
             }
         res.status(200).json({ success: true, data: chatBot });
     } catch (error) {
@@ -69,12 +74,15 @@ const updateChatBot = async (req, res, next) => {
 
     try {
         const updatedChatBot = await chatBotService.updateChatBot(req.params.id, req.body, req.user.userId);
+
         if (!updatedChatBot) {
-            return res.status(404).json({ success: false, message: 'ChatBot not found or unauthorized' });
+            return res.status(400).json({ success: false, message: 'ChatBot not found or unauthorized' });
         }
+
         res.status(200).json({ success: true, data: updatedChatBot, message: "Updated successfully." });
     } catch (error) {
         next(error);
+        res.status(400).json({ success: false, message:"Failed to Updating." });
     }
 };
 

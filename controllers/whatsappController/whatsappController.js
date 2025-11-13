@@ -2,15 +2,31 @@ const axios = require('axios');
 const NodeCache = require('node-cache');
 const jwt = require('jsonwebtoken');
 const User = require('../../models/User');
+const path = require('path');
 const handleConversation = require('../../services/whatsappService/whatsappService');
 const { baseUrl } = require('../../config/whatsappConfig');
 const { getMediaType, fetchFilesFromMessageParts, updateMIdByUrl, parseToArray } = require('../../utils/common');
 const validator = require("validator");
 const FormData = require("form-data");
+const fs = require('fs');
+const mime = require('mime-types');
+const { Storage } = require("@google-cloud/storage");
 
+let storage;
+if (process.env.GCS_CREDENTIALS) {
+    storage = new Storage({
+        credentials: JSON.parse(process.env.GCS_CREDENTIALS),
+    });
+} else {
+    storage = new Storage({
+        keyFilename: path.join(process.cwd(), "gcs-key.json"),
+    });
+}
+
+const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 const messageCache = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
+const mediaGroupCache = new NodeCache({ stdTTL: 60, checkperiod: 30 }); 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
@@ -22,6 +38,95 @@ const verifyWebhook = async (req, res) => {
     return isRecord
         ? res.status(200).send(challenge)
         : res.status(403).send('Invalid verify token');
+};
+
+const getMediaName = async (mediaIds, accessToken) => {
+    try {
+        const mediaArray = Array.isArray(mediaIds) ? mediaIds : [mediaIds];
+        const filePaths = [];
+        const expiryDate = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString();
+
+        for (const mediaId of mediaArray) {
+            if (!mediaId) {
+                filePaths.push(null);
+                continue;
+            }
+
+            const mediaResponse = await axios.get(`${baseUrl}/${mediaId}`, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+            });
+
+            const mediaUrl = mediaResponse.data?.url;
+            if (!mediaUrl) {
+                filePaths.push(null);
+                continue;
+            }
+
+            const fileResponse = await axios({
+                url: mediaUrl,
+                method: "GET",
+                responseType: "stream",
+                headers: { Authorization: `Bearer ${accessToken}` },
+            });
+
+            const contentType = fileResponse.headers["content-type"] || "application/octet-stream";
+            const ext = mime.extension(contentType) || "bin";
+            const filename = `${mediaId}.${ext}`;
+            const destination = `whatsappuser/${filename}`;
+            const file = bucket.file(destination);
+
+            await new Promise((resolve, reject) => {
+                fileResponse.data
+                    .pipe(
+                        file.createWriteStream({
+                            metadata: {
+                                contentType,
+                                metadata: { expiryDate }
+                            },
+                            resumable: false,
+                        })
+                    )
+                    .on("finish", resolve)
+                    .on("error", reject);
+            });
+
+            filePaths.push(filename);
+        }
+        return filePaths;
+    } catch (error) {
+        console.error("❌ Error fetching/uploading WhatsApp media:", error.response?.data || error.message);
+        return Array.isArray(mediaIds) ? mediaIds.map(() => null) : [null];
+    }
+};
+
+const processMediaBatch = async (userPhone, caption, botUser, message) => {
+    try {
+        const allMediaName = mediaGroupCache.get(userPhone) || [];
+        if (!allMediaName.length) return;
+
+        const userInput = allMediaName.join(",") || caption || "media";
+
+        const userData = {
+            userPhone,
+            profileName: message?.contacts?.[0]?.profile?.name || '',
+            userInput,
+            userOption: '',
+            userId: botUser._id,
+            whatsTimestamp: message?.messages?.[0]?.timestamp,
+        };
+
+        const aiResponse = await handleConversation(userData);
+        if (aiResponse?.resp) {
+            await sendMessageToWhatsApp(userPhone, aiResponse, botUser);
+        }
+
+    } catch (err) {
+        console.error('❌ Error processing AI media batch', err);
+    } finally {
+        mediaGroupCache.del(userPhone);
+        mediaGroupCache.del(`${userPhone}_pending`);
+        mediaGroupCache.del(`${userPhone}_processing`);
+    }
 };
 
 const handleIncomingMessage = async (req, res) => {
@@ -83,7 +188,6 @@ const handleIncomingMessage = async (req, res) => {
                 aiResponse = await handleConversation(userData);
                 break;
             }
-
             case 'interactive': {
                 const interactiveType = whatsapData?.interactive?.type;
                 const selectedOption =
@@ -102,7 +206,103 @@ const handleIncomingMessage = async (req, res) => {
                 aiResponse = await handleConversation(userData);
                 break;
             }
+            case 'image':
+            case 'video':
+            case 'audio':
+            case 'document': {
+                const mediaId = whatsapData?.[type]?.id;
+                const caption = whatsapData?.[type]?.caption || '';
+                if (!mediaId) break;
+                if (!mediaGroupCache.has(userPhone)) mediaGroupCache.set(userPhone, []);
+                if (!mediaGroupCache.has(`${userPhone}_promises`)) mediaGroupCache.set(`${userPhone}_promises`, []);
+                if (!mediaGroupCache.has(`${userPhone}_firstTime`)) mediaGroupCache.set(`${userPhone}_firstTime`, Date.now());
+                if (mediaGroupCache.get(`${userPhone}_finalized`)) {
+                    break;
+                }
 
+                const fetchAndStoreMedia = async (id) => {
+                    try {
+                        const mediaNames = await getMediaName(id, botUser.accesstoken);
+                        const currentMedia = mediaGroupCache.get(userPhone) || [];
+                        mediaGroupCache.set(userPhone, [...currentMedia, ...mediaNames.filter(Boolean)]);
+                    } catch (err) {
+                        console.error(`❌ Error fetching media ${id}:`, err);
+                    }
+                };
+
+                const promises = mediaGroupCache.get(`${userPhone}_promises`);
+                promises.push(fetchAndStoreMedia(mediaId));
+                mediaGroupCache.set(`${userPhone}_promises`, promises);
+                const existingIdleTimer = mediaGroupCache.get(`${userPhone}_idleTimer`);
+                if (existingIdleTimer) clearTimeout(existingIdleTimer);
+
+                const idleTimeout = 15000;
+                const maxTotal = 120000;
+                const elapsed = Date.now() - mediaGroupCache.get(`${userPhone}_firstTime`);
+
+                if (elapsed >= maxTotal) {
+                    // Max wait reached
+                    await sendSingleMessage(
+                        userPhone, 
+                        botUser, 
+                        `Hi ${message?.contacts?.[0]?.profile?.name || ""}. Time limit reached — proceeding with available media`, 
+                    );
+                    await finalizeBatch();
+                    break;
+                }
+
+                const newIdleTimer = setTimeout(async () => {
+                    await finalizeBatch();
+                }, idleTimeout);
+
+                mediaGroupCache.set(`${userPhone}_idleTimer`, newIdleTimer);
+
+                async function finalizeBatch() {
+                    if (mediaGroupCache.get(`${userPhone}_finalized`)) return;
+                    mediaGroupCache.set(`${userPhone}_finalized`, true);
+                    try {
+                        await Promise.all(mediaGroupCache.get(`${userPhone}_promises`) || []);
+                        const allMedia = mediaGroupCache.get(userPhone) || [];
+                        if (allMedia.length > 0) {
+                            if(allMedia.length > 5) {
+                                await sendSingleMessage(
+                                    userPhone, 
+                                    botUser, 
+                                    `Hi ${message?.contacts?.[0]?.profile?.name || ""}. starting the upload — some may be skipped if delayed😔.`, 
+                                );
+                            }
+                            await processMediaBatch(userPhone, caption, botUser, message);
+                        } else {
+                            console.log(`🟡 No media found to process for ${userPhone}`);
+                        }
+                    } catch (err) {
+                        console.error('❌ Error processing media batch:', err);
+                    } finally {
+                        mediaGroupCache.del(`${userPhone}_promises`);
+                        mediaGroupCache.del(`${userPhone}_idleTimer`);
+                        mediaGroupCache.del(userPhone);
+                        mediaGroupCache.del(`${userPhone}_firstTime`);
+                    }
+                }
+
+                break;
+            }
+            case 'location': {
+                const location = whatsapData?.location;
+                const latitude = location?.latitude;
+                const longitude = location?.longitude;
+                const userInput = `lat: ${latitude},  Lng: ${longitude}`;
+                userData = {
+                    userPhone,
+                    profileName: message?.contacts?.[0]?.profile?.name || '',
+                    userOption: '',
+                    userInput,
+                    userId: botUser._id,
+                    whatsTimestamp: whatsapData?.timestamp,
+                };
+                aiResponse = await handleConversation(userData);
+                break;
+            }
             default:
                 return res.status(400).send('Unsupported message type');
         }

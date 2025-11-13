@@ -17,6 +17,7 @@ const User = require('../../models/User');
 const { default: mongoose } = require('mongoose');
 const { createNotification } = require('../../controllers/notificationController');
 const { sendToUser } = require('../../utils/notifications');
+const { bookSlot } = require('./googleCalendar');
 
 const userConversationHistories = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
 const userLocks = new Map();
@@ -96,6 +97,11 @@ const createAIResponse = async (chatData) => {
         userPrompt = null;
         userOption = null;
     };
+
+    // (async () => {
+    //     const result = await bookSlot(userOption, "2025-11-12");
+    //     console.log(result,'rrrrrrrrrrrrrrrrrrrrrrrrrrrr');
+    // })();
 
     const date = new Date(whatsTimestamp * 1000);
     const userRespondTime = date.toISOString().replace('Z', '+00:00');
@@ -193,7 +199,7 @@ const createAIResponse = async (chatData) => {
             }
               
             if (userOption === 'reschedule') {
-                session.selectedFlowId = session.existingUserData?.flowId || null;
+                session.selectedFlowId = session.existingUserData?.flowId || existingAppointment?.flowId || null
                 session.conversation = [];
                 session.awaitingRescheduleOrCancel = false;
                 session.userHandledExistingAppointmentOption = true;
@@ -273,7 +279,6 @@ const createAIResponse = async (chatData) => {
 
             const conversationText = session.conversation.map(c => `${c.sender}: ${c.message}`);
             const generatedPrompt = await generateDynamicPrompt(conversationText, userPrompt, flowTrainingData);
-            console.log(generatedPrompt,'generatedPromptgeneratedPrompt')
             let aiResponse = await generateAIResponse(generatedPrompt, userPhone, clearUserSessionData, resetUserInput);
             const options = safeParseOptions(aiResponse, aiResponse?.slot);
             updateConversationHistory(userPhone, userPrompt, aiResponse);
@@ -281,7 +286,7 @@ const createAIResponse = async (chatData) => {
             const extractJsonFromResp = extractJsonFromResponse(aiResponse);
             const cleanAIResp = cleanAIResponse(aiResponse);
             const messageParts = cleanAIResp?.split(',').map(p => p.trim()).filter(Boolean) || [];
-            console.log(cleanAIResp,'cleanAIResp')
+            console.log(userOption,'userOption')
 
             if (Array.isArray(options) && options.length > 0) {
                 const [{ id: firstId, value: mainTitle, type }, ...rest] = options;
@@ -294,7 +299,7 @@ const createAIResponse = async (chatData) => {
                     isQuestion: true
                 };
             }
-
+ 
             if(!cleanAIResp) {
                 await clearUserSessionData(userPhone);
                 resetUserInput();
