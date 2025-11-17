@@ -31,4 +31,6 @@ gcs-key.json
 #ignore vertex files
 vertex-api-key.json
 
+#ignore env.yaml
+env.yaml
 
