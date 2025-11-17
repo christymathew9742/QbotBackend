@@ -1,7 +1,11 @@
 const jsonBlockRegex = /```json\s*([\s\S]*?)\s*```/i;
 const trailingJsonRegex = /(?:\s*)({[\s\S]*}|\[[\s\S]*\])\s*$/;
 const jwt = require('jsonwebtoken');
-const AppointmentModal = require('../models/AppointmentModal')
+const AppointmentModal = require('../models/AppointmentModal');
+const validator = require("validator");
+const mongoose = require("mongoose");
+const { ChatBotModel } = require('../models/chatBotModel/chatBotModel');
+
 
 function cleanAIResponse(response) {
     if (typeof response !== 'string' || !response.trim()) return '';
@@ -86,8 +90,8 @@ function safeParseOptions(aiResponse) {
             item =>
                 typeof item === 'object' &&
                 typeof item.id === 'string' &&
-                /^P-\d+$/.test(item.id) &&
-                typeof item.value === 'string'
+                typeof item.value === 'string' &&
+                typeof item.type  === 'string'
             )
         ) {
             return parsed;
@@ -102,16 +106,17 @@ function safeParseOptions(aiResponse) {
 
 const getValidationHint = (type, requiredFields = []) => {
     const baseText = `Mandatory: true\n  - Expected`;
+    const globalKeysNote = "Also accept any relevant user-provided keywords for this field.";
     const hints = {
-        Text: `${baseText} Text only:\n - User Keywords: "name(Only alphabets and common words)", "title", "location name", "reason", "text field"\n - Format: String (e.g., John Doe)\n - Error Message: "Please enter a valid [fieldName]"`,
-        Number: `${baseText} Numbers only:\n  - User Keywords: "age(ALLOW:1 to 100)", "quantity", "amount", "duration", "count", "number of items"\n  - Format: Numbers only (e.g., 25)\n  - Error Message: "Please enter a valid [fieldName]"`,
-        Email: `${baseText} Email:\n  - User Keywords: "email", "mail", "email address"\n  - Format: Valid email (e.g., john@example.com)\n  - Error Message: "Please enter a valid email address like john@example.com."`,
-        Phone: `${baseText} Phone:\n  - User Keywords: "phone", "mobile", "contact number"\n  - Format: 6-12-digit number (e.g., 9876543210)\n  - Error Message: "Please enter a valid phone number."`,
-        Date: `${baseText} Date:\n  - User Keywords: "date", "appointment date", "birthdate", "meeting date"\n  - Format: YYYY-MM-DD (e.g., 2025-07-10)\n  - Error Message: "Please enter a valid date in YYYY-MM-DD format."`,
-        Time: `${baseText} Time:\n  - User Keywords: "time", "meeting time", "slot time", "appointment time"\n  - Format: HH:MM (24-hour) (e.g., 14:30)\n  - Error Message: "Please enter a valid time like 14:30 in 24-hour format."`,
-        URL: `${baseText} URL:\n  - User Keywords: "website", "link", "portfolio", "profile URL"\n  - Format: Valid HTTP/HTTPS URL (e.g., https://example.com)\n  - Error Message: "Please enter a valid website URL starting with http or https."`,
-        Location: `${baseText} Location:\n  - User Keywords: "location", "coordinates", "map point"\n  - Format: latitude,longitude (e.g., 12.9716,77.5946)\n  - Error Message: "Please provide a valid location format like latitude,longitude."`,
-        File: `${baseText} File:\n  - User Keywords: "document", "attachment", "file upload", "image file"\n  - Format: Upload only (PDF, DOC, JPG, etc.)\n  - Error Message: "Please upload a valid file attachment only."`
+        Text: `${baseText} Text:\n- Keys: name, title, location, reason\n- ${globalKeysNote}\n- Format: alphabets only (e.g., John Doe)\n- Error: "Enter a valid [fieldName]"`,
+        Number: `${baseText} Number:\n- Keys: age(1–100), quantity, amount, count\n- ${globalKeysNote}\n- Format: digits only (e.g., 25)\n- Error: "Enter a valid [fieldName]"`,
+        Email: `${baseText} Email:\n- Keys: email, mail, address\n- ${globalKeysNote}\n- Format: valid email (e.g., a@b.com)\n- Error: "Enter a valid [fieldName]"`,
+        Phone: `${baseText} Phone:\n- Keys: phone, mobile, contact\n- ${globalKeysNote}\n- Format: 6–12 digits (e.g., 9876543210)\n- Error: "Enter a valid [fieldName]"`,
+        Date: `${baseText} Date:\n- Keys: date, birthdate, meeting\n- ${globalKeysNote}\n- Format: any common date; normalize to DD-MM-YYYY\n- Error: "Enter a valid [fieldName]"`,
+        Time: `${baseText} Time:\n- Keys: time, slot, meeting\n- ${globalKeysNote}\n- Format: HH:MM (24h, e.g., 14:30)\n- Error: "Enter a valid [fieldName]"`,
+        URL: `${baseText} URL:\n- Keys: website, link, portfolio\n- ${globalKeysNote}\n- Format: http/https (e.g., https://site.com)\n- Error: "Enter a valid [fieldName]"`,
+        Location: `${baseText} Location:\n- Keys: location, coordinates, map\n- ${globalKeysNote}\n- Format: lat,long (e.g., lat: 12.97,77.59,  Lng: long: 75.9861648)\n- Error: "Enter valid [fieldName]"`,
+        File: `${baseText} File:\n- Allowed types: document, attachment, image, video, audio, resume\n- ${globalKeysNote}\n- Validation: accepts only valid file uploads (e.g., filename.extension)\n- Restrictions: no plain text, numbers, or special characters — must include a valid filename and extension\n- Error: "Upload a valid [fieldName] file"`
     };
     return hints[type] || '';
 };
@@ -284,13 +289,8 @@ const fillMissingSentimentFields = (scores = {}) => ({
     ...scores
 });
 
-const onWebhookEvent = async (whatsTimestamp, userPhone, userId) => {
-    if (!whatsTimestamp || !userPhone || !userId) throw new Error("Invalid inputs");
-  
-    const date = new Date(whatsTimestamp * 1000);
-    if (isNaN(date)) throw new Error("Invalid timestamp");
-  
-    const isoStringWithOffset = date.toISOString().replace('Z', '+00:00');
+const onWebhookEvent = async (userRespondTime, userPhone, userId) => {
+    if (!userRespondTime || !userPhone || !userId) throw new Error("Invalid inputs");
   
     await AppointmentModal.updateMany(
         {
@@ -298,11 +298,169 @@ const onWebhookEvent = async (whatsTimestamp, userPhone, userId) => {
             user: userId,
             $or: [
                 { lastActiveAt: { $exists: false } },
-                { lastActiveAt: { $lt: isoStringWithOffset } }
+                { lastActiveAt: { $lt: userRespondTime } }
             ]
         },
-        { $set: { lastActiveAt: isoStringWithOffset } }
+        { $set: { lastActiveAt: userRespondTime } }
     );
+};
+
+function isUserOption(userOption, prefix) {
+    return typeof userOption === "string" && userOption.startsWith(prefix);
+}
+
+const getMediaType = (message) => {
+    if (!message || typeof message !== "string") return null;
+
+    const url = message.trim();
+
+    if (!validator.isURL(url, { require_protocol: true })) return null;
+
+    try {
+        const ext = url.split(".").pop().toLowerCase().split("?")[0].split("#")[0];
+
+        if (["jpg", "jpeg", "png", "webp"].includes(ext)) return "image";
+        if (["mp4", "3gp"].includes(ext)) return "video";
+        if (["mp3", "aac", "m4a", "amr", "ogg", "opus" ].includes(ext)) return "audio";
+        if ([ "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",  "txt", "csv", "rtf", "zip", "rar"].includes(ext)) return "document";
+        return null;
+    } catch {
+        return null;
+    }
+};
+
+const  fetchFilesFromMessageParts = async (messageParts, selectedFlowId, userId) => {
+    try {
+        if (!Array.isArray(messageParts) || !selectedFlowId || !userId) {
+            return; 
+        }
+
+        const fileIds = messageParts.filter(p => typeof p === "string" && p.startsWith("FI-"));
+        if (!fileIds.length) return null;
+
+        const batchSize = 200;
+        const batches = [];
+        for (let i = 0; i < fileIds.length; i += batchSize) {
+            batches.push(fileIds.slice(i, i + batchSize));
+        }
+
+        const results = await Promise.all(
+            batches.map(async (ids) =>
+                ChatBotModel.aggregate([
+                    {
+                        $match: {
+                            _id: new mongoose.Types.ObjectId(selectedFlowId),
+                            user: userId,
+                            status: true,
+                        },
+                    },
+                    { $unwind: "$nodes" },
+                    { $unwind: "$nodes.data.inputs" },
+                    { $unwind: "$nodes.data.inputs.fileData" },
+                    {
+                        $match: {
+                            "nodes.data.inputs.fileData.fileId": { $in: ids },
+                        },
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            fileId: "$nodes.data.inputs.fileData.fileId",
+                            output: {
+                                $ifNull: [
+                                    "$nodes.data.inputs.fileData.url",
+                                    "$nodes.data.inputs.fileData.location",
+                                ],
+                            },
+                        },
+                    },
+                ])
+            )
+        );
+
+        const matchedFiles = results.flat();
+        const fileMap = Object.create(null);
+        for (const f of matchedFiles) {
+            if (f.fileId && f.output) {
+                fileMap[f.fileId.trim()] = f.output;
+            }
+        }
+
+        const orderedOutputs = messageParts
+            .map((part) => {
+                const trimmed = String(part).trim();
+                return trimmed.startsWith("FI-")
+                    ? fileMap[trimmed] || ""
+                    :trimmed;
+            })
+            .filter(Boolean);
+
+        return orderedOutputs.length ? { meaasgeLink: orderedOutputs } : null;
+    } catch (error) {
+        console.error("Error in fetchFilesFromMessageParts:", error);
+        throw error;
+    }
+}
+
+async function updateMIdByUrl(chatbotId, userId, singleUrl, newMId) {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(chatbotId) || !mongoose.Types.ObjectId.isValid(userId) || !newMId) {
+           return;
+        }
+
+        const chatbot = await ChatBotModel.findOne({
+            _id: chatbotId,
+            user: userId,
+            status: true,
+        });
+
+        if (!chatbot) throw new Error("Chatbot not found or access denied");
+
+        let updated = false;
+
+        for (const node of chatbot.nodes || []) {
+            for (const input of node?.data?.inputs || []) {
+                for (const file of input?.fileData || []) {
+                    if (file.url === singleUrl) {
+                        file.mId = newMId;
+                        updated = true;
+                        break;
+                    }
+                }
+                if (updated) break;
+            }
+            if (updated) break;
+        }
+
+        if (updated) {
+            chatbot.markModified("nodes");
+            await chatbot.save();
+            return { success: true };
+        } else {
+            return { success: false };
+        }
+    } catch (error) {
+        console.error("❌ Error updating mId:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+const parseToArray = (resp) => {
+    if (!resp) return [];
+    if (Array.isArray(resp)) return resp.map(s => String(s).trim()).filter(Boolean);
+
+    if (typeof resp === 'object') return Object.values(resp).map(s => String(s).trim()).filter(Boolean);
+
+    if (typeof resp === 'string') {
+        const match = resp.match(/\[([^\]]+)\]/);
+        if (match) {
+            return match[1].split(',').map(s => s.trim()).filter(Boolean);
+        }
+
+        return resp.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    return [String(resp)];
 };
 
 module.exports = {
@@ -316,8 +474,9 @@ module.exports = {
     parseChatHistory,
     fillMissingSentimentFields,
     onWebhookEvent,
+    isUserOption,
+    getMediaType,
+    fetchFilesFromMessageParts,
+    updateMIdByUrl,
+    parseToArray,
 };
-  
-
-
-  

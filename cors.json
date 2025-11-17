@@ -1,0 +1,18 @@
+[
+  {
+    "origin": [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:3002",
+      "https://qbotassistance.vercel.app",
+      "https://qbot-assistant.vercel.app"
+    ],
+    "method": ["GET", "PUT", "POST", "HEAD", "DELETE"],
+    "responseHeader": ["Content-Type", "Authorization"],
+    "maxAgeSeconds": 3600
+  }
+]
+
+
+
+
