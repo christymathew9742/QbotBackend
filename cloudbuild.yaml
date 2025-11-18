@@ -24,7 +24,7 @@ steps:
         '--concurrency=80',
         '--min-instances=0'
       ]
-
+      
 images:
   - 'gcr.io/qbot-441905/qbotbackend-india'
 
