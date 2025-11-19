@@ -11,15 +11,21 @@ const FormData = require("form-data");
 const fs = require('fs');
 const mime = require('mime-types');
 const { Storage } = require("@google-cloud/storage");
-
 let storage;
-if (process.env.GCS_CREDENTIALS) {
+
+if (process.env.NODE_ENV === 'production') {
+    storage = new Storage({
+        keyFilename: '/secrets/key.json', 
+        projectId: process.env.GCS_PROJECT_ID,
+    });
+} else if (process.env.GCS_CREDENTIALS) {
     storage = new Storage({
         credentials: JSON.parse(process.env.GCS_CREDENTIALS),
+        projectId: process.env.GCS_PROJECT_ID,
     });
 } else {
     storage = new Storage({
-        keyFilename: path.join(process.cwd(), "gcs-key.json"),
+        keyFilename: path.join(process.cwd(), 'gcs-key.json'),
     });
 }
 

@@ -21,7 +21,6 @@ const {
 
 const authMiddleware = require('../middlewares/authMiddleware');
 const userMiddleware = require('../middlewares/userMiddleware');
-
 let storage;
 
 if (process.env.NODE_ENV === 'production') {
