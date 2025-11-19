@@ -98,11 +98,6 @@ const createAIResponse = async (chatData) => {
         userOption = null;
     };
 
-    // (async () => {
-    //     const result = await bookSlot(userOption, "2025-11-12");
-    //     console.log(result,'rrrrrrrrrrrrrrrrrrrrrrrrrrrr');
-    // })();
-
     const date = new Date(whatsTimestamp * 1000);
     const userRespondTime = date.toISOString().replace('Z', '+00:00');
     const isPotentialFlowId = mongoose.Types.ObjectId.isValid(userOption);
@@ -307,7 +302,7 @@ const createAIResponse = async (chatData) => {
 
             const averageSentimentScoresSafe = (scoresArray = []) =>
                 fillMissingSentimentFields(averageSentimentScores(scoresArray));
-
+            console.log(extractJsonFromResp,'extractJsonFromResp')
             try {
                 if (extractJsonFromResp) {
                     const history = parseChatHistory(session.conversation);
@@ -439,7 +434,7 @@ const createAIResponse = async (chatData) => {
                         },
                         { new: true, upsert: true }
                     );
-            
+                    console.log(extractJsonFromResp,'extractJsonFromResp inside the function')
                     await clearUserSessionData(userPhone);
                     resetUserInput();
                     return  { message: !cleanAIResp? `Thank you ${profileName}, your appointment is successfully completed. Have a wonderful day! 😊` : cleanAIResp  };
