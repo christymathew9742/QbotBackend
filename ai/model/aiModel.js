@@ -16,18 +16,41 @@ let provider = null;
         } else {
             const { VertexAI } = require('@google-cloud/vertexai');
 
+            // let vertexAI;
+            // if (process.env.VERTEX_AI_CREDENTIALS) {
+            //     vertexAI = new VertexAI({
+            //     project: process.env.GOOGLE_PROJECT_ID || 'qbot-441905',
+            //     location: process.env.GOOGLE_PROJECT_LOCATION || 'us-central1',
+            //     credentials: JSON.parse(process.env.VERTEX_AI_CREDENTIALS),
+            // });
+            // } else {
+            //     process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(process.cwd(), 'vertex-api-key.json');
+            //     vertexAI = new VertexAI({
+            //         project: process.env.GOOGLE_PROJECT_ID || 'qbot-441905',
+            //         location: process.env.GOOGLE_PROJECT_LOCATION || 'us-central1',
+            //     });
+            // }
+
+
             let vertexAI;
-            if (process.env.VERTEX_AI_CREDENTIALS) {
-                vertexAI = new VertexAI({
-                project: process.env.GOOGLE_PROJECT_ID || 'qbot-441905',
-                location: process.env.GOOGLE_PROJECT_LOCATION || 'us-central1',
-                credentials: JSON.parse(process.env.VERTEX_AI_CREDENTIALS),
-            });
-            } else {
-                process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(process.cwd(), 'vertex-api-key.json');
+
+            if (process.env.VERTEX_AI === 'yes') {
                 vertexAI = new VertexAI({
                     project: process.env.GOOGLE_PROJECT_ID || 'qbot-441905',
                     location: process.env.GOOGLE_PROJECT_LOCATION || 'us-central1',
+                    keyFilename: '/gvc-secrets/gvc.json',
+                });
+            } else if (process.env.VERTEX_AI_CREDENTIALS) {
+                vertexAI = new VertexAI({
+                    project: process.env.GOOGLE_PROJECT_ID || 'qbot-441905',
+                    location: process.env.GOOGLE_PROJECT_LOCATION || 'us-central1',
+                    credentials: JSON.parse(process.env.VERTEX_AI_CREDENTIALS),
+                });
+            } else {
+                vertexAI = new VertexAI({
+                    project: process.env.GOOGLE_PROJECT_ID || 'qbot-441905',
+                    location: process.env.GOOGLE_PROJECT_LOCATION || 'us-central1',
+                    keyFilename: path.join(process.cwd(), 'vertex-api-key.json'),
                 });
             }
 
