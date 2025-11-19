@@ -3,14 +3,19 @@ const { errorResponse } = require('../../utils/errorResponse');
 const { Storage } = require("@google-cloud/storage");
 const path = require('path');
 const mime = require("mime-types");
-
 let storage;
-if (process.env.GCS_CREDENTIALS) {
+
+if (process.env.NODE_ENV === 'production') {
+  storage = new Storage({
+    keyFilename: '/secrets/key.json', 
+    projectId: process.env.GCS_PROJECT_ID,
+  });
+} else if (process.env.GCS_CREDENTIALS) {
   storage = new Storage({
     credentials: JSON.parse(process.env.GCS_CREDENTIALS),
+    projectId: process.env.GCS_PROJECT_ID,
   });
 } else {
-  const path = require('path');
   storage = new Storage({
     keyFilename: path.join(process.cwd(), 'gcs-key.json'),
   });

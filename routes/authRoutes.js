@@ -157,10 +157,8 @@ const {
 const authMiddleware = require('../middlewares/authMiddleware');
 const userMiddleware = require('../middlewares/userMiddleware');
 
-// ---------------- Google Cloud Storage Setup ---------------- //
 let storage;
 
-// Use Secret mounted file in Cloud Run
 if (process.env.NODE_ENV === 'production') {
   storage = new Storage({
     keyFilename: '/secrets/key.json', 
@@ -180,7 +178,6 @@ if (process.env.NODE_ENV === 'production') {
 const bucketName = process.env.GCS_BUCKET_NAME;
 const bucket = storage.bucket(bucketName);
 
-// ---------------- Multer Setup ---------------- //
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
@@ -190,7 +187,6 @@ const upload = multer({
   },
 });
 
-// ---------------- Upload Middleware ---------------- //
 async function uploadToGCS(req, res, next) {
   if (!req.file) return next();
 
@@ -201,7 +197,6 @@ async function uploadToGCS(req, res, next) {
     const cleanName = req.file.originalname.replace(/\s+/g, '-');
     const fileName = `profilePic/${monthFolder}/${userId}/${userId}-${cleanName}`;
 
-    // Delete old files in the same folder
     const [files] = await bucket.getFiles({ prefix: `profilePic/${monthFolder}/${userId}/` });
     for (const file of files) {
       await file.delete().catch((err) => console.error('Error deleting old file:', err));
@@ -232,7 +227,6 @@ async function uploadToGCS(req, res, next) {
   }
 }
 
-// ---------------- Routes ---------------- //
 router.post('/signup', signUp);
 router.post('/google-login', googleLogin);
 router.post('/login', login);
@@ -264,7 +258,6 @@ router.put(
   updateUser
 );
 
-// ---------------- Profile Image Route ---------------- //
 router.get('/profile-image/:userId/:fileName', authMiddleware, async (req, res) => {
   const { userId, fileName } = req.params;
 
