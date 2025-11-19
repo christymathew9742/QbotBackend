@@ -313,13 +313,15 @@ const createAIResponse = async (chatData) => {
                     let appointmentData = typeof extractJsonFromResp === 'string'
                         ? JSON.parse(extractJsonFromResp)
                         : extractJsonFromResp;
+                    console.log(appointmentData,'appointmentData')
                    if (
                         !appointmentData ||
                         (typeof appointmentData === 'string' && appointmentData.trim() === '') ||
                         (Array.isArray(appointmentData) && appointmentData.length === 0) ||
                         (typeof appointmentData === 'object' && !Array.isArray(appointmentData) && Object.keys(appointmentData).length === 0)
                     ) {
-                        return; 
+                        console.log('No appointment data to save.');
+                        return;
                     }
             
                     let firstUserCreated = userRespondTime;
@@ -403,7 +405,7 @@ const createAIResponse = async (chatData) => {
                             setDefaultsOnInsert: true,
                         }
                     );
-
+                    console.log(appointmentData,'appointmentData before save or update')
                     await AppointmentModal.findOneAndUpdate (
                         {
                             _id: existingAppointment?._id || appointmentUid, 
@@ -434,7 +436,7 @@ const createAIResponse = async (chatData) => {
                         },
                         { new: true, upsert: true }
                     );
-                    console.log(extractJsonFromResp,'extractJsonFromResp inside the function')
+        
                     await clearUserSessionData(userPhone);
                     resetUserInput();
                     return  { message: !cleanAIResp? `Thank you ${profileName}, your appointment is successfully completed. Have a wonderful day! 😊` : cleanAIResp  };
