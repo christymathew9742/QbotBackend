@@ -540,6 +540,12 @@
 
 
 
+
+
+
+
+
+
 const axios = require('axios');
 const NodeCache = require('node-cache');
 const jwt = require('jsonwebtoken');
@@ -554,15 +560,12 @@ const fs = require('fs');
 const mime = require('mime-types');
 const { Storage } = require("@google-cloud/storage");
 const speech = require('@google-cloud/speech');
-const textToSpeech = require('@google-cloud/text-to-speech'); // 📦 NEW
 
 // --- Configuration & Clients ---
 
 let storage;
 let speechClient;
-let ttsClient; // 📦 NEW
 const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME;
-const MEDIA_FOLDER_NAME = 'whatsapp_voice_notes';
 
 // Unified Credential Loader
 const getGcpConfig = () => {
@@ -586,7 +589,6 @@ const getGcpConfig = () => {
 const gcpConfig = getGcpConfig();
 storage = new Storage(gcpConfig);
 speechClient = new speech.SpeechClient(gcpConfig);
-ttsClient = new textToSpeech.TextToSpeechClient(gcpConfig); // 📦 NEW
 
 const bucket = storage.bucket(GCS_BUCKET_NAME);
 const messageCache = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
@@ -639,7 +641,7 @@ const getMediaName = async (mediaIds, accessToken) => {
             const contentType = fileResponse.headers["content-type"] || "application/octet-stream";
             const ext = mime.extension(contentType) || "bin";
             const filename = `${mediaId}.${ext}`;
-            const destination = `${MEDIA_FOLDER_NAME}/${filename}`;
+            const destination = `whatsappuser/${filename}`;
             const file = bucket.file(destination);
 
             await new Promise((resolve, reject) => {
@@ -666,86 +668,26 @@ const getMediaName = async (mediaIds, accessToken) => {
     }
 };
 
-// 🎙️ UPDATED: STT with Multi-Language Support
 const transcribeAudio = async (gcsUri) => {
     try {
         const audio = { uri: gcsUri };
-        
-        // List of languages to detect (Indian Context)
-        const languageList = ['en-IN', 'ml-IN', 'ta-IN', 'te-IN', 'kn-IN', 'hi-IN'];
-
         const config = {
-            encoding: 'OGG_OPUS',
-            sampleRateHertz: 16000,
-            languageCode: 'en-IN', // Primary fallback
-            alternativeLanguageCodes: languageList, // Auto-detect these
+            encoding: 'OGG_OPUS', 
+            sampleRateHertz: 16000, 
+            languageCode: 'en-US', 
             enableAutomaticPunctuation: true,
         };
 
         const request = { audio, config };
         const [response] = await speechClient.recognize(request);
         
-        const result = response.results[0];
-        const transcription = result?.alternatives[0]?.transcript;
-        const detectedLanguage = result?.languageCode || 'en-IN'; // Capture detected language
+        const transcription = response.results
+            .map(result => result.alternatives[0].transcript)
+            .join('\n');
             
-        return { text: transcription, language: detectedLanguage };
+        return transcription;
     } catch (error) {
         console.error("❌ STT Error:", error);
-        return { text: null, language: 'en-IN' };
-    }
-};
-
-// 🗣️ NEW: TTS (Text-to-Speech) Converter
-const convertTextToSpeech = async (text, languageCode) => {
-    try {
-        // Map STT language codes to best TTS Voice names
-        const voiceMap = {
-            'en-IN': { name: 'en-IN-Neural2-A', gender: 'FEMALE' },
-            'hi-IN': { name: 'hi-IN-Neural2-A', gender: 'FEMALE' },
-            'ml-IN': { name: 'ml-IN-Standard-A', gender: 'FEMALE' }, // Malayalam
-            'ta-IN': { name: 'ta-IN-Neural2-A', gender: 'FEMALE' }, // Tamil
-            'te-IN': { name: 'te-IN-Standard-A', gender: 'FEMALE' }, // Telugu
-            'kn-IN': { name: 'kn-IN-Standard-A', gender: 'FEMALE' }, // Kannada
-        };
-
-        // Default to English India if language not mapped
-        const voiceConfig = voiceMap[languageCode] || voiceMap['en-IN'];
-
-        const request = {
-            input: { text: text },
-            voice: { languageCode: languageCode, name: voiceConfig.name, ssmlGender: voiceConfig.gender },
-            audioConfig: { audioEncoding: 'MP3' },
-        };
-
-        const [response] = await ttsClient.synthesizeSpeech(request);
-        return response.audioContent; // Returns binary audio buffer
-    } catch (error) {
-        console.error("❌ TTS Error:", error);
-        return null;
-    }
-};
-
-// 📤 NEW: Helper to upload TTS Buffer to WhatsApp
-const uploadBufferToWhatsApp = async (audioBuffer, botUser) => {
-    try {
-        const formData = new FormData();
-        formData.append("messaging_product", "whatsapp");
-        formData.append("file", audioBuffer, {
-            filename: "response.mp3",
-            contentType: "audio/mpeg",
-        });
-
-        const uploadUrl = `${baseUrl}/${botUser?.phonenumberid}/media`;
-        const uploadResp = await axios.post(uploadUrl, formData, {
-            headers: {
-                Authorization: `Bearer ${botUser.accesstoken}`,
-                ...formData.getHeaders(),
-            },
-        });
-        return uploadResp?.data?.id;
-    } catch (error) {
-        console.error("❌ Failed to upload TTS audio to WhatsApp:", error.message);
         return null;
     }
 };
@@ -780,16 +722,71 @@ const processMediaBatch = async (userPhone, caption, botUser, message) => {
     }
 };
 
+// --- Batch Logic Extracted ---
+
+// const handleMediaBatch = async (type, whatsapData, userPhone, message, botUser) => {
+//     const mediaId = whatsapData?.[type]?.id;
+//     const caption = whatsapData?.[type]?.caption || '';
+//     if (!mediaId) return;
+
+//     if (!mediaGroupCache.has(userPhone)) mediaGroupCache.set(userPhone, []);
+//     if (!mediaGroupCache.has(`${userPhone}_promises`)) mediaGroupCache.set(`${userPhone}_promises`, []);
+//     if (!mediaGroupCache.has(`${userPhone}_firstTime`)) mediaGroupCache.set(`${userPhone}_firstTime`, Date.now());
+//     if (mediaGroupCache.get(`${userPhone}_finalized`)) return;
+
+//     const fetchAndStoreMedia = async (id) => {
+//         try {
+//             const mediaNames = await getMediaName(id, botUser.accesstoken);
+//             const currentMedia = mediaGroupCache.get(userPhone) || [];
+//             mediaGroupCache.set(userPhone, [...currentMedia, ...mediaNames.filter(Boolean)]);
+//         } catch (err) {
+//             console.error(`❌ Error fetching media ${id}:`, err);
+//         }
+//     };
+
+//     const promises = mediaGroupCache.get(`${userPhone}_promises`);
+//     promises.push(fetchAndStoreMedia(mediaId));
+//     mediaGroupCache.set(`${userPhone}_promises`, promises);
+    
+//     const existingIdleTimer = mediaGroupCache.get(`${userPhone}_idleTimer`);
+//     if (existingIdleTimer) clearTimeout(existingIdleTimer);
+
+//     const idleTimeout = 15000;
+//     const maxTotal = 120000;
+//     const elapsed = Date.now() - mediaGroupCache.get(`${userPhone}_firstTime`);
+
+//     if (elapsed >= maxTotal) {
+//         await sendSingleMessage(
+//             userPhone, 
+//             botUser, 
+//             `Hi ${message?.contacts?.[0]?.profile?.name || ""}. Time limit reached — proceeding with available media`, 
+//         );
+//         await finalizeBatch(userPhone, caption, botUser, message);
+//         return;
+//     }
+
+//     const newIdleTimer = setTimeout(async () => {
+//         await finalizeBatch(userPhone, caption, botUser, message);
+//     }, idleTimeout);
+
+//     mediaGroupCache.set(`${userPhone}_idleTimer`, newIdleTimer);
+// };
+
+
 const handleMediaBatch = async (type, whatsapData, userPhone, message, botUser) => {
     const mediaId = whatsapData?.[type]?.id;
     const caption = whatsapData?.[type]?.caption || '';
     if (!mediaId) return;
 
+    // Initialize Cache Structure
     if (!mediaGroupCache.has(userPhone)) mediaGroupCache.set(userPhone, []);
     if (!mediaGroupCache.has(`${userPhone}_promises`)) mediaGroupCache.set(`${userPhone}_promises`, []);
     if (!mediaGroupCache.has(`${userPhone}_firstTime`)) mediaGroupCache.set(`${userPhone}_firstTime`, Date.now());
+    
+    // Stop if we already sent the response
     if (mediaGroupCache.get(`${userPhone}_finalized`)) return;
 
+    // --- 1. Track and Store Media ---
     const fetchAndStoreMedia = async (id) => {
         try {
             const mediaNames = await getMediaName(id, botUser.accesstoken);
@@ -804,26 +801,42 @@ const handleMediaBatch = async (type, whatsapData, userPhone, message, botUser) 
     promises.push(fetchAndStoreMedia(mediaId));
     mediaGroupCache.set(`${userPhone}_promises`, promises);
     
+    // --- 2. Calculate Dynamic Timeout ---
+    // We use the count of 'promises' because that represents how many items have HIT the webhook
+    const incomingCount = promises.length;
+    
+    let dynamicTimeout = 6000; // Default: Fast (6s) for 1-2 items
+
+    if (incomingCount >= 3 && incomingCount < 6) {
+        dynamicTimeout = 10000; // Medium (10s) for 3-5 items
+    } else if (incomingCount >= 6) {
+        dynamicTimeout = 15000; // Slow (15s) for Bulk/Forwarded items
+    }
+
+    console.log(`📦 Batch count: ${incomingCount} | Waiting: ${dynamicTimeout/1000}s`);
+
+    // --- 3. Timer Logic ---
     const existingIdleTimer = mediaGroupCache.get(`${userPhone}_idleTimer`);
     if (existingIdleTimer) clearTimeout(existingIdleTimer);
 
-    const idleTimeout = 15000;
-    const maxTotal = 120000;
+    // Check Max Total Time (Safety Stop)
+    const maxTotal = 120000; // 2 minutes hard limit
     const elapsed = Date.now() - mediaGroupCache.get(`${userPhone}_firstTime`);
 
     if (elapsed >= maxTotal) {
         await sendSingleMessage(
             userPhone, 
             botUser, 
-            `Hi ${message?.contacts?.[0]?.profile?.name || ""}. Time limit reached — proceeding with available media`, 
+            `Hi ${message?.contacts?.[0]?.profile?.name || ""}. Maximum wait time reached — processing what I have so far.`, 
         );
         await finalizeBatch(userPhone, caption, botUser, message);
         return;
     }
 
+    // Set the new dynamic timer
     const newIdleTimer = setTimeout(async () => {
         await finalizeBatch(userPhone, caption, botUser, message);
-    }, idleTimeout);
+    }, dynamicTimeout);
 
     mediaGroupCache.set(`${userPhone}_idleTimer`, newIdleTimer);
 };
@@ -903,10 +916,6 @@ const handleIncomingMessage = async (req, res) => {
         let aiResponse = null;
         let userData;
 
-        // Flags to control Voice Logic
-        let isVoiceConversation = false;
-        let detectedLanguageCode = 'en-IN';
-
         switch (type) {
             case 'text': {
                 const body = whatsapData?.text?.body?.trim();
@@ -939,8 +948,7 @@ const handleIncomingMessage = async (req, res) => {
                 aiResponse = await handleConversation(userData);
                 break;
             }
-            
-            // 🎙️ START: AUDIO / VOICE HANDLING
+
             case 'audio': {
                 const mediaId = whatsapData?.audio?.id;
                 const isVoiceNote = whatsapData?.audio?.voice === true;
@@ -948,23 +956,16 @@ const handleIncomingMessage = async (req, res) => {
                 if (isVoiceNote && mediaId) {
                     console.log(`🎙️ Voice Note received from ${userPhone}. Processing STT...`);
                     
-                    // 1. Download File to GCS
                     const mediaNames = await getMediaName(mediaId, botUser.accesstoken);
                     const fileName = mediaNames[0];
 
                     if (fileName) {
-                        // 2. Transcribe
-                        const gcsUri = `gs://${GCS_BUCKET_NAME}/${MEDIA_FOLDER_NAME}/${fileName}`;
-                        const { text: transcribedText, language } = await transcribeAudio(gcsUri);
-                        
-                        // Set flags for Voice-Out Logic
-                        isVoiceConversation = true;
-                        detectedLanguageCode = language;
-
-                        console.log(`🎙️ Recognized (${language}): "${transcribedText}"`);
-
+                        const gcsUri = `gs://${GCS_BUCKET_NAME}/whatsappuser/${fileName}`;
+                        const transcribedText = await transcribeAudio(gcsUri);
+                        console.log(`🎙️ Transcription audio: ${transcribedText}.`);
                         if (transcribedText) {
-                            // 3. Send as TEXT to AI
+                            console.log(`📝 Transcription: "${transcribedText}"`);
+                            
                             userData = {
                                 userPhone,
                                 profileName: message?.contacts?.[0]?.profile?.name || '',
@@ -975,16 +976,14 @@ const handleIncomingMessage = async (req, res) => {
                             };
                             aiResponse = await handleConversation(userData);
                         } else {
-                            await sendSingleMessage(userPhone, botUser, "Sorry, I couldn't understand that audio. Please speak clearly.");
+                            await sendSingleMessage(userPhone, botUser, "Sorry, I couldn't understand that audio.");
                         }
                     }
                 } else {
-                    // It's a song or audio file, handle as batch media
                     await handleMediaBatch(type, whatsapData, userPhone, message, botUser);
                 }
                 break;
             }
-            // 🎙️ END: AUDIO / VOICE HANDLING
 
             case 'image':
             case 'video':
@@ -1012,53 +1011,8 @@ const handleIncomingMessage = async (req, res) => {
                 return res.status(400).send('Unsupported message type');
         }
 
-        // 🟢 FINAL RESPONSE HANDLING (TEXT vs VOICE)
         if (aiResponse?.resp) {
-            
-            // If it was a voice note, reply with voice (TTS)
-            if (isVoiceConversation && type === 'audio') {
-                
-                // Extract plain text from AI response (ignore buttons/lists for TTS)
-                let textToSpeak = "";
-                if (typeof aiResponse.resp === 'string') {
-                    textToSpeak = aiResponse.resp;
-                } else if (Array.isArray(aiResponse.resp)) {
-                    // If AI returns array of objects, try to find text
-                     textToSpeak = aiResponse.resp.map(r => r.text || r.title || "").join(". ");
-                }
-
-                if (textToSpeak) {
-                    console.log(`🗣️ Converting AI reply to Audio (${detectedLanguageCode})...`);
-                    const audioBuffer = await convertTextToSpeech(textToSpeak, detectedLanguageCode);
-                    
-                    if (audioBuffer) {
-                        const uploadedMediaId = await uploadBufferToWhatsApp(audioBuffer, botUser);
-                        if (uploadedMediaId) {
-                            // Send AUDIO reply
-                            await sendWithRetry(botUser, {
-                                messaging_product: 'whatsapp',
-                                to: userPhone,
-                                type: 'audio',
-                                audio: { id: uploadedMediaId }
-                            });
-                            console.log(`✅ Sent Voice Reply to ${userPhone}`);
-                        } else {
-                            // Fallback to text if upload fails
-                            await sendMessageToWhatsApp(userPhone, aiResponse, botUser);
-                        }
-                    } else {
-                        // Fallback to text if TTS fails
-                        await sendMessageToWhatsApp(userPhone, aiResponse, botUser);
-                    }
-                } else {
-                    // No speakable text found (maybe just buttons?), send standard message
-                    await sendMessageToWhatsApp(userPhone, aiResponse, botUser);
-                }
-
-            } else {
-                // Standard Text flow
-                await sendMessageToWhatsApp(userPhone, aiResponse, botUser);
-            }
+            await sendMessageToWhatsApp(userPhone, aiResponse, botUser);
         }
 
         res.status(200).send('Message handled successfully');
@@ -1083,7 +1037,6 @@ const validateToken = (user, secretKey) => {
     }
 };
 
-// ... sendMessageToWhatsApp and sendSingleMessage (Kept exactly same as before) ...
 const sendMessageToWhatsApp = async (phoneNumber, aiResponse, botUser) => {
     if (!phoneNumber || !aiResponse) return;
 
@@ -1283,14 +1236,4 @@ module.exports = {
     verifyWebhook,
     handleIncomingMessage,
 };
-
-
-
-
-
-
-
-
-
-
 
