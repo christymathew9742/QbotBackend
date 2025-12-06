@@ -51,12 +51,12 @@ const loginUserService = async ({ email, password }) => {
 
 //update user details
 const updateUserService = async (userId, updateFields) => {
-   
+   console.log('Update fields received:', updateFields);
     try {
         const updatedUser = await User.findByIdAndUpdate(
             userId,
             { $set: updateFields },
-            { new: true, runValidators: true }
+            { new: true, runValidators: true },
         ).select('-password');
   
         if (!updatedUser) {

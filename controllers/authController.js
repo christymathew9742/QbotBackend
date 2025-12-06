@@ -151,54 +151,6 @@ const testWhatsapConfig = async (req, res, next) => {
     }
 };
 
-//update user data
-// const updateUser = async (req, res, next) => {
-//     try {
-//         const userId = req.user?.userId;
-//         if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
-
-//         const existingUser = await User.findById(userId);
-//         if (!existingUser) return res.status(404).json({ success: false, message: 'User not found' });
-
-//         const updateFields = {};
-
-//         if(req.file){
-//             updateFields.profilepic = {
-//                 originalName: req.file.originalname,
-//                 mimeType: req.file.mimetype,
-//                 size: req.file.size,
-//                 fileName: req.fileName,
-//                 fileUrl: req.file.gcsUrl,
-//             };
-//         }
-
-//         ['displayname', 'username', 'email', 'phone', 'bio', 'profilepic','country', 'state', 'postalcode', 'taxId', 'accesstoken','facebook', 'twitter', 'linkedin', 'instagram', 'phonenumberid'].forEach(field => {
-//             if (req.body[field] !== undefined) updateFields[field] = req.body[field];
-//         });
-
-//         if (req.body.generateToken === true && existingUser.generateToken !== true) {
-//             const token = jwt.sign(
-//                 { userId: existingUser._id.toString(), issuedAt: new Date().toISOString() },
-//                 process.env.JWT_SECRET,
-//                 { expiresIn: '7d' }
-//             );
-//             updateFields.verifytoken = token;
-//             updateFields.generateToken = true;
-//         }
-
-//         const updatedUser = await updateUserService(userId, updateFields);
-
-//         res.status(200).json({
-//             success: true,
-//             message: 'Profile updated successfully',
-//             data: updatedUser
-//         });
-//     } catch (error) {
-//         console.error('Update user error:', error);
-//         next(new Error(`User update failed: ${error.message}`));
-//     }
-// };
-
 const updateUser = async (req, res, next) => {
     try {
         const userId = req.user?.userId;
@@ -226,7 +178,7 @@ const updateUser = async (req, res, next) => {
         [
             'displayname', 'username', 'email', 'phone', 'bio', 'profilepic', 'country', 'state',
             'postalcode', 'taxId', 'accesstoken', 'facebook', 'twitter', 'linkedin',
-            'instagram', 'phonenumberid'
+            'instagram', 'phonenumberid','status',
         ].forEach(field => {
             if (req.body[field] !== undefined) updateFields[field] = req.body[field];
         });
@@ -256,7 +208,7 @@ const updateUser = async (req, res, next) => {
 
         return res.status(200).json({
             success: true,
-            message: 'API configuration updated successfully.',
+            message: 'Updated successfully.',
             data: updatedUser
         });
 

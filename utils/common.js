@@ -418,7 +418,7 @@ async function updateMIdByUrl(chatbotId, userId, singleUrl, newMId) {
 
         let updated = false;
 
-        for (const node of chatbot.nodes || []) {
+        for (const node of chatbot?.nodes || []) {
             for (const input of node?.data?.inputs || []) {
                 for (const file of input?.fileData || []) {
                     if (file.url === singleUrl) {

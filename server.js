@@ -1,13 +1,10 @@
 const app = require('./app');
 const User = require('./models/User');
 const bcrypt = require('bcryptjs');
-const WebSocket = require('ws');
-const AppointmentModal = require('./models/AppointmentModal');
 const { initWebSocket } = require('./utils/notifications');
 
 const PORT = process.env.PORT || 5001;
 
-let wss; 
 
 (async () => {
     try {

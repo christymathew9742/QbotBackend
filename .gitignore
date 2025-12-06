@@ -30,6 +30,7 @@ uploads
 gcs-key.json
 #ignore vertex files
 vertex-api-key.json
+vertex-key.json
 
 #ignore env.yaml
 env.yaml

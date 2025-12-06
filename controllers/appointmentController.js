@@ -33,7 +33,7 @@ const updateAppointments = async (req, res, next) => {
         if (!updatedAppointments) {
             return res.status(404).json({ success: false, message: 'Appointments not found or unauthorized' });
         }
-        res.status(200).json({ success: true, data: updatedAppointments });
+        res.status(200).json({ success: true, data: updatedAppointments, message: 'Appointments updated' });
     } catch (error) {
         next(error);
     }

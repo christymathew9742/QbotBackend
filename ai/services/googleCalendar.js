@@ -1,5 +1,4 @@
 const { google } = require("googleapis");
-require("dotenv").config();
 
 const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CALENDER,
