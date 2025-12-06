@@ -16,7 +16,6 @@ const router = express.Router();
 router.post('/',authMiddleware,validateChatBot,Validation,createChatBot);
 router.get('/', authMiddleware, getAllChatBot);
 router.get('/:id', authMiddleware, getChatBotById);
-// router.put('/:id', authMiddleware,validateChatBot, Validation, updateChatBot);
 router.put('/:id', authMiddleware, updateChatBot);
 router.delete('/:id', authMiddleware, deleteChatBot);
 router.get("/:id/upload-url", authMiddleware, getSignedUrlForUpload);

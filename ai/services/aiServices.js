@@ -1,6 +1,6 @@
 const NodeCache = require('node-cache');
 const { Mutex } = require('async-mutex');
-const AppointmentModal = require('../../models/AppointmentModal');
+const AppointmentModal = require('../../models/AppointmentModal');  
 const generateDynamicPrompt = require('../../ai/training/preprocess');
 const { generateAIResponse, clearUserTracking } = require('../model/aiModel');
 const {
@@ -17,7 +17,7 @@ const User = require('../../models/User');
 const { default: mongoose } = require('mongoose');
 const { createNotification } = require('../../controllers/notificationController');
 const { sendToUser } = require('../../utils/notifications');
-const { bookSlot } = require('./googleCalendar');
+const Slots = require('../../models/Slots');
 
 const userConversationHistories = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
 const userLocks = new Map();
@@ -43,7 +43,7 @@ const averageSentimentScores = arr => {
     
     const averaged = {};
     Object.keys(totals).forEach(key => {
-        averaged[key] = parseFloat((totals[key] / arr.length).toFixed(1));
+        averaged[key] = parseFloat((totals[key] / arr?.length).toFixed(1));
     });
     
     return averaged;
@@ -155,7 +155,11 @@ const createAIResponse = async (chatData) => {
                     );
 
                     await User.findOneAndUpdate (
-                        { whatsAppNumber: userPhone },
+                        { 
+                            whatsAppNumber: userPhone,
+                            user: userId, 
+
+                        },
                         {
                             $set: {
                                 status: "cancelled",
@@ -163,6 +167,20 @@ const createAIResponse = async (chatData) => {
                             },
                         },
                         { new: true, upsert: true }
+                    );
+
+                    await Slots.findOneAndUpdate (
+                        { 
+                            user: userId, 
+                            whatsappNumber: userPhone,
+                            status: 'booked' 
+                        },
+                        { 
+                            $set: { 
+                                status: 'available', 
+                                updatedAt: new Date()
+                            } 
+                        },
                     );
                 
                     if (result.modifiedCount > 0) {
@@ -199,6 +217,86 @@ const createAIResponse = async (chatData) => {
                 session.awaitingRescheduleOrCancel = false;
                 session.userHandledExistingAppointmentOption = true;
                 userConversationHistories.set(userPhone, session);
+                await Slots.findOneAndUpdate (
+                    { 
+                        user: userId, 
+                        whatsappNumber: userPhone,
+                        status: 'booked' 
+                    },
+                    { 
+                        $set: { 
+                            status: 'available', 
+                            updatedAt: new Date()
+                        } 
+                    },
+                );
+            }
+
+            if (userOption && userOption.startsWith('P-SSL')) {
+                try {
+
+                    try {
+                        await Slots.create({
+                            slot: userOption,
+                            user: userId,
+                            whatsappNumber: userPhone,
+                            flowId: session.selectedFlowId,
+                            status: 'underProcess',
+                            updatedAt: new Date()
+                        });
+
+                    } catch (createError) {
+                        if (createError.code === 11000) {
+                            
+                            const lockedSlot = await Slots.findOneAndUpdate (
+                                { 
+                                    slot: userOption,       
+                                    status: 'available' 
+                                },
+                                { 
+                                    $set: { 
+                                        user: userId, 
+                                        whatsappNumber: userPhone, 
+                                        flowId: session.selectedFlowId, 
+                                        status: 'underProcess',
+                                        updatedAt: new Date()
+                                    } 
+                                },
+                                { new: true }
+                            );
+
+                            if (!lockedSlot) {
+                                console.log("Slot is currently unavailable try again later.");
+                                await clearUserSessionData(userPhone);
+                                resetUserInput();
+                                return { message: `😔 Sorry ${profileName}, Slot is currently unavailable try again later.` };
+                            }
+                        } else {
+                            throw createError;
+                        }
+                    }
+
+                } catch (error) {
+                    console.error("System Error:", error);
+                }
+            } else {
+                const HOLD_MINUTES = parseInt(process.env.HOLD_MINUTES) || 5;
+                const TIMEOUT_MS = HOLD_MINUTES * 60 * 1000;
+                const expirationTime = new Date(Date.now() - TIMEOUT_MS);
+                
+                await Slots.updateMany (
+                    { 
+                        status: 'underProcess', 
+                        updatedAt: { $lt: expirationTime } 
+                    },
+                    { 
+                        $set: { 
+                            status: 'available',
+                            user: null,
+                            updatedAt: new Date() 
+                        } 
+                    }
+                );
             }
 
             if (
@@ -281,20 +379,36 @@ const createAIResponse = async (chatData) => {
             const extractJsonFromResp = extractJsonFromResponse(aiResponse);
             const cleanAIResp = cleanAIResponse(aiResponse);
             const messageParts = cleanAIResp?.split(',').map(p => p.trim()).filter(Boolean) || [];
-            console.log(userOption,'userOption')
 
             if (Array.isArray(options) && options.length > 0) {
                 const [{ id: firstId, value: mainTitle, type }, ...rest] = options;
+
+                const bookedSlots = await Slots.find ({
+                    user: userId,
+                    flowId: session?.selectedFlowId,
+                    status: { $in: ['booked', 'underProcess'] }
+                });
+
+                const bookedSlotIds = bookedSlots.map(s => s.slot);
+                const availableOptions = rest.filter(({ id }) => !bookedSlotIds.includes(id));
+                if (!availableOptions?.length) {
+                    await clearUserSessionData(userPhone);
+                    resetUserInput();
+                    return {
+                        message: `😔 Sorry ${profileName}, all slots for this selection are fully booked. Please try choosing a different date or time.`
+                    };
+                }
+                const optionsData = {
+                    mainTitle,
+                    type: type.toLowerCase(),
+                    resp: availableOptions.map(({ id, value }) => ({ _id: id, title: value })),
+                };
                 return {
-                    optionsArray: {
-                        mainTitle,
-                        type: type.toLowerCase(),
-                        resp: rest.map(({ id, value }) => ({ _id: id, title: value })),
-                    },
+                    optionsArray: optionsData,
                     isQuestion: true
                 };
             }
- 
+
             if(!cleanAIResp) {
                 await clearUserSessionData(userPhone);
                 resetUserInput();
@@ -302,7 +416,7 @@ const createAIResponse = async (chatData) => {
 
             const averageSentimentScoresSafe = (scoresArray = []) =>
                 fillMissingSentimentFields(averageSentimentScores(scoresArray));
-            console.log(extractJsonFromResp,'extractJsonFromResp')
+
             try {
                 if (extractJsonFromResp) {
                     const history = parseChatHistory(session.conversation);
@@ -313,14 +427,12 @@ const createAIResponse = async (chatData) => {
                     let appointmentData = typeof extractJsonFromResp === 'string'
                         ? JSON.parse(extractJsonFromResp)
                         : extractJsonFromResp;
-                    console.log(appointmentData,'appointmentData')
                    if (
                         !appointmentData ||
                         (typeof appointmentData === 'string' && appointmentData.trim() === '') ||
                         (Array.isArray(appointmentData) && appointmentData.length === 0) ||
                         (typeof appointmentData === 'object' && !Array.isArray(appointmentData) && Object.keys(appointmentData).length === 0)
                     ) {
-                        console.log('No appointment data to save.');
                         return;
                     }
             
@@ -373,7 +485,7 @@ const createAIResponse = async (chatData) => {
                     ]
                     : [currentScores];
 
-                    const userRef = await User.findOneAndUpdate(
+                    const userRef = await User.findOneAndUpdate (
                         {
                             whatsAppNumber: userPhone,
                             user: userId 
@@ -405,7 +517,7 @@ const createAIResponse = async (chatData) => {
                             setDefaultsOnInsert: true,
                         }
                     );
-                    console.log(appointmentData,'appointmentData before save or update')
+
                     await AppointmentModal.findOneAndUpdate (
                         {
                             _id: existingAppointment?._id || appointmentUid, 
@@ -439,6 +551,20 @@ const createAIResponse = async (chatData) => {
         
                     await clearUserSessionData(userPhone);
                     resetUserInput();
+                    await Slots.findOneAndUpdate (
+                        { 
+                            user: userId, 
+                            whatsappNumber: userPhone,
+                            flowId: session.selectedFlowId,
+                            status: 'underProcess' 
+                        },
+                        { 
+                            $set: { 
+                                status: 'booked', 
+                                updatedAt: new Date()
+                            } 
+                        },
+                    );
                     return  { message: !cleanAIResp? `Thank you ${profileName}, your appointment is successfully completed. Have a wonderful day! 😊` : cleanAIResp  };
                 }
             

@@ -84,18 +84,23 @@ const getAppointmentsById = async (id, userId) => {
 // Updating a Appointments with unique title validation
 const updateAppointments = async (id, appointmentData, userId) => {
     try {
-        const updateAppointments = await AppointmentModal.findOneAndUpdate(
-            { _id: id, user: userId },
-            appointmentData,
-            {
-                new: true,
-                runValidators: true,
+        if(appointmentData?.status) {
+            const updateAppointments = await AppointmentModal.findOneAndUpdate(
+                { _id: id, user: userId },
+                { 
+                    ...appointmentData,
+                    lastUpdatedAt: new Date() 
+                },
+                {
+                    new: true,
+                    runValidators: true,
+                },
+            );
+            if (!updateAppointments) {
+                throw errorResponse('ChatBot not found', 404);
             }
-        );
-        if (!updateAppointments) {
-            throw errorResponse('ChatBot not found', 404);
+            return updateAppointments;
         }
-        return updateAppointments;
     } catch (error) {
         throw new Error(`Error updating ChatBot: ${error.message}`);
     }
