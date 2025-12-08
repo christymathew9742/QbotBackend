@@ -813,8 +813,6 @@ const handleMediaBatch = async (type, whatsapData, userPhone, message, botUser) 
         dynamicTimeout = 15000; // Slow (15s) for Bulk/Forwarded items
     }
 
-    console.log(`📦 Batch count: ${incomingCount} | Waiting: ${dynamicTimeout/1000}s`);
-
     // --- 3. Timer Logic ---
     const existingIdleTimer = mediaGroupCache.get(`${userPhone}_idleTimer`);
     if (existingIdleTimer) clearTimeout(existingIdleTimer);

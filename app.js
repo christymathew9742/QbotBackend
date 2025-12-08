@@ -32,6 +32,8 @@ const allowedOrigins = [
   'http://localhost:3002',
   'https://qbotassistance.vercel.app',
   'https://qbot-assistant.vercel.app',
+  'https://www.quickbot.store',
+  'https://quickbot.store',
 ];
 
 app.use(cors({
