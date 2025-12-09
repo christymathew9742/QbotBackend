@@ -724,69 +724,16 @@ const processMediaBatch = async (userPhone, caption, botUser, message) => {
 
 // --- Batch Logic Extracted ---
 
-// const handleMediaBatch = async (type, whatsapData, userPhone, message, botUser) => {
-//     const mediaId = whatsapData?.[type]?.id;
-//     const caption = whatsapData?.[type]?.caption || '';
-//     if (!mediaId) return;
-
-//     if (!mediaGroupCache.has(userPhone)) mediaGroupCache.set(userPhone, []);
-//     if (!mediaGroupCache.has(`${userPhone}_promises`)) mediaGroupCache.set(`${userPhone}_promises`, []);
-//     if (!mediaGroupCache.has(`${userPhone}_firstTime`)) mediaGroupCache.set(`${userPhone}_firstTime`, Date.now());
-//     if (mediaGroupCache.get(`${userPhone}_finalized`)) return;
-
-//     const fetchAndStoreMedia = async (id) => {
-//         try {
-//             const mediaNames = await getMediaName(id, botUser.accesstoken);
-//             const currentMedia = mediaGroupCache.get(userPhone) || [];
-//             mediaGroupCache.set(userPhone, [...currentMedia, ...mediaNames.filter(Boolean)]);
-//         } catch (err) {
-//             console.error(`❌ Error fetching media ${id}:`, err);
-//         }
-//     };
-
-//     const promises = mediaGroupCache.get(`${userPhone}_promises`);
-//     promises.push(fetchAndStoreMedia(mediaId));
-//     mediaGroupCache.set(`${userPhone}_promises`, promises);
-    
-//     const existingIdleTimer = mediaGroupCache.get(`${userPhone}_idleTimer`);
-//     if (existingIdleTimer) clearTimeout(existingIdleTimer);
-
-//     const idleTimeout = 15000;
-//     const maxTotal = 120000;
-//     const elapsed = Date.now() - mediaGroupCache.get(`${userPhone}_firstTime`);
-
-//     if (elapsed >= maxTotal) {
-//         await sendSingleMessage(
-//             userPhone, 
-//             botUser, 
-//             `Hi ${message?.contacts?.[0]?.profile?.name || ""}. Time limit reached — proceeding with available media`, 
-//         );
-//         await finalizeBatch(userPhone, caption, botUser, message);
-//         return;
-//     }
-
-//     const newIdleTimer = setTimeout(async () => {
-//         await finalizeBatch(userPhone, caption, botUser, message);
-//     }, idleTimeout);
-
-//     mediaGroupCache.set(`${userPhone}_idleTimer`, newIdleTimer);
-// };
-
-
 const handleMediaBatch = async (type, whatsapData, userPhone, message, botUser) => {
     const mediaId = whatsapData?.[type]?.id;
     const caption = whatsapData?.[type]?.caption || '';
     if (!mediaId) return;
 
-    // Initialize Cache Structure
     if (!mediaGroupCache.has(userPhone)) mediaGroupCache.set(userPhone, []);
     if (!mediaGroupCache.has(`${userPhone}_promises`)) mediaGroupCache.set(`${userPhone}_promises`, []);
     if (!mediaGroupCache.has(`${userPhone}_firstTime`)) mediaGroupCache.set(`${userPhone}_firstTime`, Date.now());
-    
-    // Stop if we already sent the response
     if (mediaGroupCache.get(`${userPhone}_finalized`)) return;
 
-    // --- 1. Track and Store Media ---
     const fetchAndStoreMedia = async (id) => {
         try {
             const mediaNames = await getMediaName(id, botUser.accesstoken);
@@ -801,40 +748,26 @@ const handleMediaBatch = async (type, whatsapData, userPhone, message, botUser) 
     promises.push(fetchAndStoreMedia(mediaId));
     mediaGroupCache.set(`${userPhone}_promises`, promises);
     
-    // --- 2. Calculate Dynamic Timeout ---
-    // We use the count of 'promises' because that represents how many items have HIT the webhook
-    const incomingCount = promises.length;
-    
-    let dynamicTimeout = 6000; // Default: Fast (6s) for 1-2 items
-
-    if (incomingCount >= 3 && incomingCount < 6) {
-        dynamicTimeout = 10000; // Medium (10s) for 3-5 items
-    } else if (incomingCount >= 6) {
-        dynamicTimeout = 15000; // Slow (15s) for Bulk/Forwarded items
-    }
-
-    // --- 3. Timer Logic ---
     const existingIdleTimer = mediaGroupCache.get(`${userPhone}_idleTimer`);
     if (existingIdleTimer) clearTimeout(existingIdleTimer);
 
-    // Check Max Total Time (Safety Stop)
-    const maxTotal = 120000; // 2 minutes hard limit
+    const idleTimeout = 15000;
+    const maxTotal = 120000;
     const elapsed = Date.now() - mediaGroupCache.get(`${userPhone}_firstTime`);
 
     if (elapsed >= maxTotal) {
         await sendSingleMessage(
             userPhone, 
             botUser, 
-            `Hi ${message?.contacts?.[0]?.profile?.name || ""}. Maximum wait time reached — processing what I have so far.`, 
+            `Hi ${message?.contacts?.[0]?.profile?.name || ""}. Time limit reached — proceeding with available media`, 
         );
         await finalizeBatch(userPhone, caption, botUser, message);
         return;
     }
 
-    // Set the new dynamic timer
     const newIdleTimer = setTimeout(async () => {
         await finalizeBatch(userPhone, caption, botUser, message);
-    }, dynamicTimeout);
+    }, idleTimeout);
 
     mediaGroupCache.set(`${userPhone}_idleTimer`, newIdleTimer);
 };
