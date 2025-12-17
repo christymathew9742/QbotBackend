@@ -1,249 +1,195 @@
 const path = require('path');
 const { MAX_RETRIES, RETRY_DELAY_MS } = require('../../config/constants');
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/* =====================================================
+   AI MODEL INITIALIZATION (SINGLE INSTANCE ONLY)
+===================================================== */
 
 let model = null;
 let provider = null;
 
 (async () => {
-    try {
-        if (process.env.API_GEM) {
-            const { GoogleGenerativeAI } = require('@google/generative-ai');
-            const genAI = new GoogleGenerativeAI(process.env.API_GEM);
-            model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-            provider = 'Gemini API';
-            console.log('✅ Using Gemini API (gemini-2.5-flash)');
-        } else {
-            const { VertexAI } = require('@google-cloud/vertexai');
-            
-            let vertexAI;
+  try {
+    // 👉 Prefer Gemini API (cheapest)
+    if (process.env.API_GEM) {
+      const { GoogleGenerativeAI } = require('@google/generative-ai');
+      const genAI = new GoogleGenerativeAI(process.env.API_GEM);
 
-            if (process.env.VERTEX_AI === 'yes') {
-                vertexAI = new VertexAI({
-                    project: process.env.GOOGLE_PROJECT_ID || 'qbot-441905',
-                    location: process.env.GOOGLE_PROJECT_LOCATION || 'us-central1',
-                    keyFilename: '/gvc-secrets/gvc.json',
-                });
-            } else if (process.env.VERTEX_AI_CREDENTIALS) {
-                vertexAI = new VertexAI({
-                    project: process.env.GOOGLE_PROJECT_ID || 'qbot-441905',
-                    location: process.env.GOOGLE_PROJECT_LOCATION || 'us-central1',
-                    credentials: JSON.parse(process.env.VERTEX_AI_CREDENTIALS),
-                });
-            } else {
-                vertexAI = new VertexAI({
-                    project: process.env.GOOGLE_PROJECT_ID || 'qbot-441905',
-                    location: process.env.GOOGLE_PROJECT_LOCATION || 'us-central1',
-                    keyFilename: path.join(process.cwd(), 'vertex-api-key.json'),
-                });
-            }
+      model = genAI.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        generationConfig: {
+          temperature: 0.4,
+        },
+      });
 
-            const vertex = new VertexAI({
-                project: process.env.GCLOUD_PROJECT || 'your-project-id',
-                location: process.env.GCLOUD_LOCATION || 'us-central1',
-            });
-
-            model = vertex.getGenerativeModel({ model: 'gemini-2.5-flash' });
-            provider = 'Vertex AI';
-            console.log('✅ Using Vertex AI (gemini-2.5-flash)');
-        }
-    } catch (err) {
-        console.error('❌ Failed to initialize AI model:', err);
+      provider = 'Gemini API';
+      console.log('✅ Using Gemini API (gemini-2.5-flash)');
+      return;
     }
+
+    // 👉 Vertex AI (only if Gemini API key not present)
+    const { VertexAI } = require('@google-cloud/vertexai');
+
+    const vertexAI = new VertexAI({
+      project: process.env.GOOGLE_PROJECT_ID || 'qbot-441905',
+      location: process.env.GOOGLE_PROJECT_LOCATION || 'us-central1',
+      keyFilename:
+        process.env.VERTEX_AI === 'yes'
+          ? '/gvc-secrets/gvc.json'
+          : process.env.VERTEX_AI_CREDENTIALS
+          ? undefined
+          : path.join(process.cwd(), 'vertex-api-key.json'),
+      credentials: process.env.VERTEX_AI_CREDENTIALS
+        ? JSON.parse(process.env.VERTEX_AI_CREDENTIALS)
+        : undefined,
+    });
+
+    model = vertexAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: {
+        temperature: 0.4,
+      },
+    });
+
+    provider = 'Vertex AI';
+    console.log('✅ Using Vertex AI (gemini-2.5-flash)');
+  } catch (err) {
+    console.error('❌ Failed to initialize AI:', err);
+  }
 })();
 
+/* =====================================================
+   QUEUE + RATE LIMIT (COST SAFE)
+===================================================== */
+
 const userQueues = new Map();
-const aiQuestionTrackers = new Map();
 
-const RATE_LIMIT = 15;
-const MIN_PROMPT_GAP = 2000;
-const QUESTION_TIMEOUT_MS = 30000;
+const RATE_LIMIT = 100;       // per minute
+const MIN_PROMPT_GAP = 1000; // ms
 
-const enqueueRequest = (userId, taskFn, promptId, clearUserSessionData = () => {}, resetUserInput = () => {}) => {
-    return new Promise((resolve, reject) => {
-        if (!userId || typeof userId !== 'string') return reject(new Error('Invalid user ID'));
+const enqueueRequest = (userId, taskFn) => {
+  if (!userId || typeof userId !== 'string') {
+    return Promise.reject(new Error('Invalid userId'));
+  }
 
-        if (!userQueues.has(userId)) {
-            userQueues.set(userId, {
-                queue: [],
-                processing: false,
-                timestamps: [],
-                latestPromptId: null,
-                awaitingResponse: false,
-                lastPromptTime: 0,
-            });
-        }
-
-        const userQueue = userQueues.get(userId);
-        const now = Date.now();
-        const aiQuestionTracker = aiQuestionTrackers.get(userId);
-
-        if (aiQuestionTracker && aiQuestionTracker.awaitingResponse) {
-            if (aiQuestionTracker.hasResponded) {
-                if (aiQuestionTracker.timeout) clearTimeout(aiQuestionTracker.timeout);
-                resolve(null);
-                return;
-            }
-                aiQuestionTracker.hasResponded = true;
-            if (aiQuestionTracker.timeout) clearTimeout(aiQuestionTracker.timeout);
-        }
-
-        if (userQueue.awaitingResponse) {
-            clearUserSessionData(userId);
-            resetUserInput();
-            resolve("Please wait a moment...");
-            return;
-        }
-
-        if (now - userQueue.lastPromptTime < MIN_PROMPT_GAP) {
-            resolve('⌛ Hold on a sec! Let me finish responding before we continue.');
-            return;
-        }
-
-        userQueue.latestPromptId = promptId;
-        userQueue.lastPromptTime = now;
-        userQueue.awaitingResponse = true;
-        userQueue.queue.push({ taskFn, resolve, reject, promptId });
-
-        processQueue(userId);
+  if (!userQueues.has(userId)) {
+    userQueues.set(userId, {
+      queue: [],
+      processing: false,
+      timestamps: [],
+      lastPromptTime: 0,
     });
+  }
+
+  return new Promise((resolve, reject) => {
+    const q = userQueues.get(userId);
+    const now = Date.now();
+
+    // Prevent spam / double sends
+    if (now - q.lastPromptTime < MIN_PROMPT_GAP) {
+      return resolve('⌛ Please wait a moment...');
+    }
+
+    q.lastPromptTime = now;
+    q.queue.push({ taskFn, resolve, reject });
+    processQueue(userId);
+  });
 };
 
 const processQueue = async (userId) => {
-    const userQueue = userQueues.get(userId);
-    if (!userQueue || userQueue.processing || userQueue.queue.length === 0) return;
+  const q = userQueues.get(userId);
+  if (!q || q.processing || q.queue.length === 0) return;
 
-    const now = Date.now();
-    userQueue.timestamps = userQueue.timestamps.filter(ts => now - ts < 60000);
-    if (userQueue.timestamps.length >= RATE_LIMIT) {
-        const waitTime = 60000 - (now - userQueue.timestamps[0]);
-        console.warn(`[${userId}] Rate limit hit. Waiting ${waitTime}ms...`);
-        setTimeout(() => processQueue(userId), waitTime);
-        return;
-    }
+  const now = Date.now();
 
-    const { taskFn, resolve, reject, promptId } = userQueue.queue.shift();
-    userQueue.processing = true;
-    userQueue.timestamps.push(now);
+  // Rate limit (rolling 60s)
+  q.timestamps = q.timestamps.filter(ts => now - ts < 60000);
+  if (q.timestamps.length >= RATE_LIMIT) return;
 
-    if (promptId !== userQueue.latestPromptId) {
-        resolve(null);
-        userQueue.processing = false;
-        userQueue.awaitingResponse = false;
-        processQueue(userId);
-        return;
-    }
+  q.processing = true;
+  q.timestamps.push(now);
 
-    try {
-        const result = await taskFn();
-        resolve(result);
-    } catch (err) {
-        console.error(`[${userId}] Queue processing error:`, err);
-        reject(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-        userQueue.processing = false;
-        userQueue.awaitingResponse = false;
-        processQueue(userId);
-    }
+  const { taskFn, resolve, reject } = q.queue.shift();
+
+  try {
+    const result = await taskFn();
+    resolve(result);
+  } catch (err) {
+    reject(err);
+  } finally {
+    q.processing = false;
+    processQueue(userId);
+  }
 };
 
-const isQuestion = (text) => {
-    const trimmed = text.trim();
-    if (/[\?？]$/.test(trimmed)) return true;
-    return /(^|\s)(who|what|when|where|why|how|which|can|could|would|will|do|does|did|is|are|was|were|may|might|must|shall|should)[\s\?]/i.test(trimmed);
-};
+/* =====================================================
+   AI RESPONSE (NO RECURSIVE BILLING)
+===================================================== */
 
-const generateAIResponse = async (prompt, userId, clearUserSessionData = () => {}, resetUserInput = () => {}, retries = 0) => {
-    if (!prompt || typeof prompt !== 'string') return null;
-    if (!userId || typeof userId !== 'string') return null;
-    if (retries >= MAX_RETRIES) {
-        console.error(`[${userId}] Max retries reached.`);
-        return "⚠️ I'm having trouble responding right now. Please try again later.";
-    }
+const generateAIResponse = async (prompt, userId) => {
+  if (!prompt || typeof prompt !== 'string') return null;
+  if (!model) return "⚠️ AI is warming up. Please try again.";
 
-    const promptId = Date.now();
+  return enqueueRequest(userId, async () => {
+    let attempt = 0;
 
-    return enqueueRequest(userId, async () => {
-        try {
-            if (!model) throw new Error('AI model not initialized');
-            let responseText = '';
+    while (attempt < MAX_RETRIES) {
+      try {
+        const result = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        });
 
-            if (provider === 'Gemini API') {
-                const result = await model.generateContent({
-                    contents: [{ role: 'user', parts: [{ text: prompt }]}],
-                });
-                responseText = result?.response?.text?.() || '';
-            }
+        let text = '';
 
-            else if (provider === 'Vertex AI') {
-                const result = await model.generateContent({
-                    contents: [{ role: 'user', parts: [{ text: prompt }]}],
-                });
-                if (result?.response?.candidates?.length > 0) {
-                    const candidate = result.response.candidates[0];
-                    const parts = candidate.content?.parts || [];
-                    responseText = parts.map(p => p.text || '').join(' ').trim();
-                }
-            }
-
-            responseText = (responseText || '').replace(/```[\s\S]*?```/g, '').trim();
-
-            if (!responseText) {
-                console.warn(`[${userId}] Empty response from ${provider}`);
-                responseText = "Sorry, I couldn’t respond just now. Please try again.";
-            }
-
-            const questionDetected = isQuestion(responseText);
-            if (questionDetected) {
-                aiQuestionTrackers.set(userId, {
-                    awaitingResponse: true,
-                    hasResponded: false,
-                    timeout: setTimeout(() => aiQuestionTrackers.delete(userId), QUESTION_TIMEOUT_MS),
-                });
-            } else if (aiQuestionTrackers.has(userId)) {
-                clearTimeout(aiQuestionTrackers.get(userId).timeout);
-                aiQuestionTrackers.delete(userId);
-            }
-
-            return responseText;
-
-        } catch (error) {
-            if (error.status === 503 || error.status === 429) {
-                const delayTime = RETRY_DELAY_MS * (retries + 1);
-                console.log(`[${userId}] Retrying in ${delayTime}ms (Attempt ${retries + 1})...`);
-                await delay(delayTime);
-                return generateAIResponse(prompt, userId, clearUserSessionData, resetUserInput, retries + 1);
-            }
-
-            if (error?.response?.promptFeedback?.blockReason === 'PROHIBITED_CONTENT') {
-                return "🙏 Sorry… I can’t reply to that as it may contain restricted content. Could you rephrase it? 🙂";
-            }
-
-            console.error(`[${userId}] ${provider} error:`, error);
-            return "⚠️ I'm having trouble responding right now. Please try again later.";
+        if (provider === 'Gemini API') {
+          text = result?.response?.text?.() || '';
+        } else {
+          const parts =
+            result?.response?.candidates?.[0]?.content?.parts || [];
+          text = parts.map(p => p.text || '').join(' ');
         }
 
-    }, promptId, clearUserSessionData, resetUserInput);
+        text = text.replace(/```[\s\S]*?```/g, '').trim();
+
+        return text || 'Sorry, I couldn’t respond right now.';
+
+      } catch (err) {
+        if (err?.status === 429 || err?.status === 503) {
+          await new Promise(r =>
+            setTimeout(r, RETRY_DELAY_MS * (attempt + 1))
+          );
+          attempt++;
+          continue;
+        }
+
+        if (err?.response?.promptFeedback?.blockReason === 'PROHIBITED_CONTENT') {
+          return "🙏 Sorry, I can’t help with that request.";
+        }
+
+        console.error(`[${userId}] ${provider} error:`, err);
+        break;
+      }
+    }
+
+    return "⚠️ I'm having trouble responding right now.";
+  });
 };
+
+/* =====================================================
+   CLEANUP
+===================================================== */
 
 const clearUserTracking = (userId) => {
-    if (aiQuestionTrackers.has(userId)) {
-        clearTimeout(aiQuestionTrackers.get(userId).timeout);
-        aiQuestionTrackers.delete(userId);
-    }
-    if (userQueues.has(userId)) {
-        userQueues.delete(userId);
-    }
-    console.log(`[${userId}] Cleared all tracking`);
+  userQueues.delete(userId);
+  console.log(`[${userId}] User tracking cleared`);
 };
+
+/* =====================================================
+   EXPORTS
+===================================================== */
 
 module.exports = {
-    generateAIResponse,
-    clearUserTracking,
+  generateAIResponse,
+  clearUserTracking,
 };
-
-
-
-
-
 

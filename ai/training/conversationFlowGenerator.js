@@ -185,6 +185,10 @@ const generateDynamicFlowData = async (flowData, ConsultantMessage) => {
     const isTerminal = !directTargets.length && !conditionalTargets.length && !conditionalSlots.length;
     const context = { messageBuffer: [], lastField: null };
 
+    // --- FLAGS TO TRACK INPUT TYPES ---
+    let hasMessageField = false;
+    let hasReplayField = false;
+
     for (let i = 0; i < node.data.inputs.length; i++) {
       const input = node.data.inputs[i];
       const nextField = node.data.inputs[i + 1];
@@ -199,7 +203,7 @@ const generateDynamicFlowData = async (flowData, ConsultantMessage) => {
         context.lastField = field;
 
         if (field === 'messages') {
-          lastNodeType = 'message';
+          hasMessageField = true; // Mark presence of message
           const cleaned = value?.replace(/<[^>]+>/g, '').trim();
           if (cleaned) context.messageBuffer.push(cleaned);
           if (Array.isArray(fileData) && fileData.length) {
@@ -219,6 +223,7 @@ const generateDynamicFlowData = async (flowData, ConsultantMessage) => {
             context.messageBuffer = [];
           }
         } else if (field === 'replay') {
+          hasReplayField = true; // Mark presence of replay
           const reqFields = (value.match(/\[(.*?)\]/g) || []).map(v => v.slice(1, -1));
           if (reqFields.length) {
             stepInstructions.push(
@@ -226,7 +231,6 @@ const generateDynamicFlowData = async (flowData, ConsultantMessage) => {
             );
           }
         } else if (field === 'preference') {
-          lastNodeType = 'preference';
           const nodeKey = `${nodeId}_preference_${i}`;
           const optionsJSONObj =
             type?.toLowerCase() !== 'slot'
@@ -245,8 +249,10 @@ const generateDynamicFlowData = async (flowData, ConsultantMessage) => {
       }
     }
 
-    if(directTargets.length && !conditionalTargets.length && !conditionalSlots.length) {
-       stepInstructions.push(
+    // --- UPDATED LOGIC FOR "NEXT STEP?" INSTRUCTION ---
+    // Only add if: Direct connection exists + No conditionals + Message field exists + NO Replay field exists
+    if(directTargets.length && !conditionalTargets.length && !conditionalSlots.length && hasMessageField && !hasReplayField) {
+        stepInstructions.push(
         '→ PRIORITY: CRITICAL | MANDATORY | BLOCKING.\n' +
         '- Auto Proceed: OFF.\n' +
         '- - Initial Message:- ```Next step?👉``` MANDATORY:- Ask this exactly without rephrasing.\n' +
@@ -322,40 +328,4 @@ const generateDynamicFlowData = async (flowData, ConsultantMessage) => {
 };
 
 module.exports = generateDynamicFlowData;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
 
