@@ -22,21 +22,21 @@ function cleanAIResponse(response) {
     return cleaned;
 }
 
-function extractJsonFromResponse(response) {
-    if (!response || typeof response !== 'string') return null;
+// function extractJsonFromResponse(response) {
+//     if (!response || typeof response !== 'string') return null;
 
-    const blockMatch = response.match(jsonBlockRegex);
-    if (blockMatch && blockMatch[1]) {
-        return blockMatch[1].trim();
-    }
+//     const blockMatch = response.match(jsonBlockRegex);
+//     if (blockMatch && blockMatch[1]) {
+//         return blockMatch[1].trim();
+//     }
 
-    const objectMatch = response.match(trailingJsonRegex);
-    if (objectMatch && objectMatch[0]) {
-        return objectMatch[0].trim();
-    }
+//     const objectMatch = response.match(trailingJsonRegex);
+//     if (objectMatch && objectMatch[0]) {
+//         return objectMatch[0].trim();
+//     }
 
-    return null;
-}
+//     return null;
+// }
 
 function extractMandatoryFieldsFromFlow(flowTrainingData) {
     const fieldSet = new Set();
@@ -74,52 +74,52 @@ function extractMandatoryFieldsFromFlow(flowTrainingData) {
     return result;
 }
 
-function safeParseOptions(aiResponse) {
-    if (typeof aiResponse !== 'string') return [];
+// function safeParseOptions(aiResponse) {
+//     if (typeof aiResponse !== 'string') return [];
   
-    const match = aiResponse.match(/\[\s*\{[\s\S]*?\}\s*\]/s);
-    if (!match) return [];
+//     const match = aiResponse.match(/\[\s*\{[\s\S]*?\}\s*\]/s);
+//     if (!match) return [];
   
-    try {
-        const parsed = JSON.parse(match[0]);
+//     try {
+//         const parsed = JSON.parse(match[0]);
     
-        if (
-            Array.isArray(parsed) &&
-            parsed.length &&
-            parsed.every (
-            item =>
-                typeof item === 'object' &&
-                typeof item.id === 'string' &&
-                typeof item.value === 'string' &&
-                typeof item.type  === 'string'
-            )
-        ) {
-            return parsed;
-        }
+//         if (
+//             Array.isArray(parsed) &&
+//             parsed.length &&
+//             parsed.every (
+//             item =>
+//                 typeof item === 'object' &&
+//                 typeof item.id === 'string' &&
+//                 typeof item.value === 'string' &&
+//                 typeof item.type  === 'string'
+//             )
+//         ) {
+//             return parsed;
+//         }
     
-        return [];
-    } catch (err) {
-        console.error("safeParseOptions failed:", err.message);
-        return [];
-    }
-}
+//         return [];
+//     } catch (err) {
+//         console.error("safeParseOptions failed:", err.message);
+//         return [];
+//     }
+// }
 
-const getValidationHint = (type, requiredFields = []) => {
-    const baseText = `Mandatory: true\n  - Expected`;
-    const globalKeysNote = "Also accept any relevant user-provided keywords for this field.";
-    const hints = {
-        Text: `${baseText} Text:\n- Keys: name, title, location, reason\n- ${globalKeysNote}\n- Format: alphabets only (e.g., John Doe)\n- Error: "Enter a valid [fieldName]"`,
-        Number: `${baseText} Number:\n- Keys: age(1–100), quantity, amount, count\n- ${globalKeysNote}\n- Format: digits only (e.g., 25)\n- Error: "Enter a valid [fieldName]"`,
-        Email: `${baseText} Email:\n- Keys: email, mail, address\n- ${globalKeysNote}\n- Format: valid email (e.g., a@b.com)\n- Error: "Enter a valid [fieldName]"`,
-        Phone: `${baseText} Phone:\n- Keys: phone, mobile, contact\n- ${globalKeysNote}\n- Format: 6–12 digits (e.g., 9876543210)\n- Error: "Enter a valid [fieldName]"`,
-        Date: `${baseText} Date:\n- Keys: date, birthdate, meeting\n- ${globalKeysNote}\n- Format: any common date; normalize to DD-MM-YYYY\n- Error: "Enter a valid [fieldName]"`,
-        Time: `${baseText} Time:\n- Keys: time, slot, meeting\n- ${globalKeysNote}\n- Format: HH:MM (24h, e.g., 14:30)\n- Error: "Enter a valid [fieldName]"`,
-        URL: `${baseText} URL:\n- Keys: website, link, portfolio\n- ${globalKeysNote}\n- Format: http/https (e.g., https://site.com)\n- Error: "Enter a valid [fieldName]"`,
-        Location: `${baseText} Location:\n- Keys: location, coordinates, map\n- ${globalKeysNote}\n- Format: lat,long (e.g., lat: 12.97,77.59,  Lng: long: 75.9861648)\n- Error: "Enter valid [fieldName]"`,
-        File: `${baseText} File:\n- Allowed types: document, attachment, image, video, audio, resume\n- ${globalKeysNote}\n- Validation: accepts only valid file uploads (e.g., filename.extension)\n- Restrictions: no plain text, numbers, or special characters — must include a valid filename and extension\n- Error: "Upload a valid [fieldName] file"`
-    };
-    return hints[type] || '';
-};
+// const getValidationHint = (type, requiredFields = []) => {
+//     const baseText = `Mandatory: true\n  - Expected`;
+//     const globalKeysNote = "Also accept any relevant user-provided keywords for this field.";
+//     const hints = {
+//         Text: `${baseText} Text:\n- Keys: name, title, location, reason\n- ${globalKeysNote}\n- Format: alphabets only (e.g., John Doe)\n- Error: "Enter a valid [fieldName]"`,
+//         Number: `${baseText} Number:\n- Keys: age(1–100), quantity, amount, count\n- ${globalKeysNote}\n- Format: digits only (e.g., 25)\n- Error: "Enter a valid [fieldName]"`,
+//         Email: `${baseText} Email:\n- Keys: email, mail, address\n- ${globalKeysNote}\n- Format: valid email (e.g., a@b.com)\n- Error: "Enter a valid [fieldName]"`,
+//         Phone: `${baseText} Phone:\n- Keys: phone, mobile, contact\n- ${globalKeysNote}\n- Format: 6–12 digits (e.g., 9876543210)\n- Error: "Enter a valid [fieldName]"`,
+//         Date: `${baseText} Date:\n- Keys: date, birthdate, meeting\n- ${globalKeysNote}\n- Format: any common date; normalize to DD-MM-YYYY\n- Error: "Enter a valid [fieldName]"`,
+//         Time: `${baseText} Time:\n- Keys: time, slot, meeting\n- ${globalKeysNote}\n- Format: HH:MM (24h, e.g., 14:30)\n- Error: "Enter a valid [fieldName]"`,
+//         URL: `${baseText} URL:\n- Keys: website, link, portfolio\n- ${globalKeysNote}\n- Format: http/https (e.g., https://site.com)\n- Error: "Enter a valid [fieldName]"`,
+//         Location: `${baseText} Location:\n- Keys: location, coordinates, map\n- ${globalKeysNote}\n- Format: lat,long (e.g., lat: 12.97,77.59,  Lng: long: 75.9861648)\n- Error: "Enter valid [fieldName]"`,
+//         File: `${baseText} File:\n- Allowed types: document, attachment, image, video, audio, resume\n- ${globalKeysNote}\n- Validation: accepts only valid file uploads (e.g., filename.extension)\n- Restrictions: no plain text, numbers, or special characters — must include a valid filename and extension\n- Error: "Upload a valid [fieldName] file"`
+//     };
+//     return hints[type] || '';
+// };
 
 const validateToken = (token) => {
     const secretKey = process.env.JWT_SECRET
@@ -305,9 +305,9 @@ const onWebhookEvent = async (userRespondTime, userPhone, userId) => {
     );
 };
 
-function isUserOption(userOption, prefix) {
-    return typeof userOption === "string" && userOption.startsWith(prefix);
-}
+// function isUserOption(userOption, prefix) {
+//     return typeof userOption === "string" && userOption.startsWith(prefix);
+// }
 
 const getMediaType = (message) => {
     if (!message || typeof message !== "string") return null;
@@ -326,6 +326,101 @@ const getMediaType = (message) => {
         return null;
     } catch {
         return null;
+    }
+};
+
+const validateInput = (type, value) => {
+    if (!value || typeof value !== 'string') return false;
+    const cleanValue = value.trim();
+    if (cleanValue?.length === 0) return false;
+
+    const getExtension = (input) => {
+        let path = input;
+        try {
+            const url = new URL(input);
+            path = url.pathname;
+        } catch (e) {
+            path = input.split(/[?#]/)[0];
+        }
+        return path.includes('.') ? path.split('.').pop().toLowerCase() : null;
+    };
+
+    switch (type?.toLowerCase()) {
+        case 'number': 
+            return !isNaN(cleanValue);
+
+        case 'email': 
+            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanValue);
+
+        case 'phone': 
+            return /^\+?\d{7,15}$/.test(cleanValue.replace(/[\s\-\(\)]/g, ''));
+
+        case 'slot':    
+            return cleanValue.startsWith('PRE-S_') || cleanValue.startsWith('PRE-SUB_') || cleanValue === 'BACK';
+
+        case 'list':
+        case 'button':  
+            return cleanValue.startsWith('PRE-');
+
+        case 'text':
+            const nameRegex = /^[\p{L}\p{M}\s\p{Extended_Pictographic}\p{Join_Control}]+$/u;
+            return nameRegex.test(value.trim());
+
+        case 'date':
+            const datePattern = /^(\d{4}[-./]\d{2}[-./]\d{2})|(\d{1,2}[-./]\d{1,2}[-./]\d{2,4})$/;
+            if (!datePattern.test(cleanValue)) return false;
+            const d = new Date(cleanValue);
+            return d instanceof Date && !isNaN(d.getTime());
+
+        case 'time':
+            const time24 = /^([01]\d|2[0-3]):([0-5]\d)(:([0-5]\d))?$/;
+            const time12 = /^(0?[1-9]|1[0-2]):([0-5]\d)(\s?[AaPp][Mm])$/i;
+            return time24.test(cleanValue) || time12.test(cleanValue);
+
+        case 'file': {
+            const ext = getExtension(cleanValue);
+            return ext && ["jpg", "jpeg", "png", "webp", "mp4", "3gp", "mp3", "aac", "m4a", "amr", "ogg", "opus", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "rtf", "zip", "rar"].includes(ext);
+        }
+
+        default:
+            return false;
+    }
+};
+
+const getInputFormat = (type) => {
+    if (!type || typeof type !== 'string') return '';
+
+    switch (type.toLowerCase()) {
+        case 'date':
+            return "YYYY-MM-DD, DD/MM/YYYY";
+
+        case 'time':
+            return "HH:MM (24-hour), HH:MM AM/PM (12-hour)";
+
+        case 'file':
+            return "Please upload a supported file format.";
+
+        case 'text':
+            return "John Doe or Anna, London, Emojis(😊)";
+
+        case 'phone':
+            return "+1234567890, 7865453467, 7-15 Digits";
+
+        case 'email':
+            return "user@domain.com";
+
+        case 'number':
+            return "1234, 5678,...";
+
+        case 'slot':
+            return "Jan 01: 19:00-22:10";
+
+        case 'list':
+        case 'button':
+            return "Option1, Option2,...";
+
+        default:
+            return "Unknown Type";
     }
 };
 
@@ -463,20 +558,32 @@ const parseToArray = (resp) => {
     return [String(resp)];
 };
 
+const stripHtml = (html = '') =>
+  html.replace(/<[^>]*>?/gm, '').trim();
+
+const extractField = (text = '') => {
+  const match = text.match(/\[(.*?)\]/);
+  return match ? match[1] : null;
+};
+
 module.exports = {
     cleanAIResponse,
-    extractJsonFromResponse,
+    // extractJsonFromResponse,
     extractMandatoryFieldsFromFlow,
-    safeParseOptions,
-    getValidationHint,
+    // safeParseOptions,
+    // getValidationHint,
     validateToken,
     generateOtpEmailTemplate,
     parseChatHistory,
     fillMissingSentimentFields,
     onWebhookEvent,
-    isUserOption,
+    // isUserOption,
     getMediaType,
+    validateInput,
+    getInputFormat,
     fetchFilesFromMessageParts,
     updateMIdByUrl,
     parseToArray,
+    stripHtml,
+    extractField,
 };
