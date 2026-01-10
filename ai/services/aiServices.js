@@ -1048,84 +1048,6 @@ const createAIResponse = async (chatData) => {
                 userPrompt = null;
             }
 
-            // // ==========================================================
-            // // 🔥 SLOT LOCKING LOGIC
-            // // ==========================================================
-            // const HOLD_MINUTES = parseInt(process.env.HOLD_MINUTES) || 1;
-            // const expirationThreshold = new Date(Date.now() - HOLD_MINUTES * 60 * 1000);
-
-            // if (userOption && userOption.startsWith('PRE-SUB_')) {
-            //     try {
-            //         await Slots.findOneAndUpdate(
-            //             {
-            //                 user: userId,
-            //                 whatsappNumber: userPhone,
-            //                 flowId: session.selectedFlowId,
-            //             },
-            //             {
-            //                 $set: {
-            //                     slot: userOption,
-            //                     status: 'underProcess',
-            //                     updatedAt: new Date()
-            //                 },
-            //             },
-            //             { new: true, upsert: true, setDefaultsOnInsert: true }
-            //         );
-            //     } catch (createError) {
-            //         const isDuplicate = createError.code === 11000 || createError.code === '11000' || (createError.message && createError.message.includes('E11000'));
-            //         if (isDuplicate) {
-            //             const lockedSlot = await Slots.findOneAndUpdate(
-            //                 {
-            //                     slot: userOption,
-            //                     flowId: session.selectedFlowId,
-            //                     $or: [
-            //                         { status: 'available' },
-            //                         { status: 'underProcess', updatedAt: { $lt: expirationThreshold } }
-            //                     ]
-            //                 },
-            //                 {
-            //                     $set: {
-            //                         user: userId,
-            //                         whatsappNumber: userPhone,
-            //                         status: 'underProcess',
-            //                         updatedAt: new Date()
-            //                     }
-            //                 },
-            //                 { new: true }
-            //             );
-
-            //             if (!lockedSlot) {
-            //                 await clearUserSessionData(userPhone);
-            //                 resetUserInput();
-            //                 return { message: `😔 Sorry ${profileName}, that slot was just booked by someone else. Please select a different time.` };
-            //             }
-            //         } else {
-            //             console.error("System Slot Error:", createError);
-            //             throw createError;
-            //         }
-            //     }
-            // } else {
-            //     await Slots.findOneAndUpdate(
-            //         {
-            //             user: userId,
-            //             flowId: session.selectedFlowId,
-            //             whatsappNumber: userPhone,
-            //             status: 'underProcess'
-            //         },
-            //         { $set: { updatedAt: new Date() } }
-            //     );
-
-            //     await Slots.deleteMany({
-            //         status: 'underProcess',
-            //         user: userId,
-            //         flowId: session.selectedFlowId,
-            //         updatedAt: { $lt: expirationThreshold }
-            //     });
-            // }
-            // // ==========================================================
-            // // END SLOT LOGIC
-            // // ==========================================================
-
             if (
                 existingAppointment &&
                 !session.userHandledExistingAppointmentOption &&
@@ -1236,7 +1158,6 @@ const createAIResponse = async (chatData) => {
             const currentRetryCount = req?.retryCount || session.flowState?.retryCount || 0; 
 
             if (req?.needsInput && userPrompt) {
-                
                 const validationFailed = req?.isValid;
                 const isAbus = isAbusive(userPrompt);
                 const isEmoji = isEmojiOnly(userPrompt);
@@ -1249,7 +1170,9 @@ const createAIResponse = async (chatData) => {
                     (isTextField && hasHistory);
 
                 if (needsAI) {
+                    console.log(conversationData,'conversationData')
                     try {
+                        console.log('ai invocked.....')
                         const parsedAI = await generateDynamicFlowData({
                             userInput: userPrompt,
                             userPhone,
@@ -1286,6 +1209,7 @@ const createAIResponse = async (chatData) => {
                     processedInput,
                     flowTrainingData,
                     currentRetryCount,
+                    profileName,
                 );
 
                 // ============================================================
@@ -1309,7 +1233,8 @@ const createAIResponse = async (chatData) => {
                             generatedPrompt.state,
                             null, 
                             flowTrainingData,
-                            0
+                            0,
+                            profileName,
                         );
                     }
                 }
@@ -1331,7 +1256,8 @@ const createAIResponse = async (chatData) => {
                             generatedPrompt.state,
                             existingValue,
                             flowTrainingData,
-                            0
+                            0,
+                            profileName,
                         );
                     } else {
                         break; 
@@ -1353,6 +1279,9 @@ const createAIResponse = async (chatData) => {
             const expirationThreshold = new Date(Date.now() - HOLD_MINUTES * 60 * 1000);
 
             if (userOption && userOption.startsWith('PRE-SUB_')) {
+                const parts = userOption.split('_');
+                const SlotId = parseInt(parts[5] || '0', 10);
+
                 try {
                     await Slots.findOneAndUpdate(
                         {
@@ -1364,6 +1293,7 @@ const createAIResponse = async (chatData) => {
                             $set: {
                                 slot: userOption,
                                 currentNode: generatedPrompt?.state?.nodeCount,
+                                SlotId,
                                 status: 'underProcess',
                                 updatedAt: new Date()
                             },
@@ -1436,7 +1366,6 @@ const createAIResponse = async (chatData) => {
             const cleanAIResp = cleanAIResponse(aiResponse);
             const messageParts = cleanAIResp?.split(',')?.map(p => p.trim()).filter(Boolean) || [];
 
-
             const slotRecordCount = await Slots.countDocuments({
                 flowId: session.existingUserData?.flowId || existingAppointment?.flowId || null,
                 user: userId,
@@ -1446,104 +1375,23 @@ const createAIResponse = async (chatData) => {
 
             console.log(slotRecordCount,'slotRecordCountslotRecordCount')
 
-            // if (Array.isArray(options) && options?.length > 0) {
-            //     const [{ id: firstId, value: mainTitle, type }, ...rest] = options;
-            //     const bookedSlots = await Slots?.find({
-            //         user: userId,
-            //         flowId: session?.selectedFlowId,
-            //         status: { $in: ['booked', 'underProcess'] }
-            //     });
-
-            //     const bookedSlotIds = bookedSlots.map(s => s.slot);
-            //     const availableOptions = rest.filter(({ id }) => !bookedSlotIds.includes(id));
-            //     if (!availableOptions?.length) {
-            //         await clearUserSessionData(userPhone);
-            //         resetUserInput();
-            //         return {
-            //             message: `😔 Sorry ${profileName}, all slots for this selection are fully booked. Please try choosing a different date or time.`
-            //         };
-            //     } else {
-            //         const optionsData = {
-            //             mainTitle,
-            //             type: type.toLowerCase(),
-            //             resp: availableOptions.map(({ id, value }) => ({ _id: id, title: value })),
-            //         };
-
-            //         return {
-            //             optionsArray: optionsData,
-            //             isQuestion: true
-            //         };
-            //     }
-            // }
-
-
-
             if (Array.isArray(options) && options?.length > 0) {
                 const [{ id: firstId, value: mainTitle, type }, ...rest] = options;
-
-                // 2. Fetch all booked/processing slots from DB
-                // We need this list to check if the sub-slots are free
                 const bookedSlots = await Slots?.find({
                     user: userId,
-                    flowId: session?.selectedFlowId, 
+                    flowId: session?.selectedFlowId,
                     status: { $in: ['booked', 'underProcess'] }
                 });
 
                 const bookedSlotIds = bookedSlots.map(s => s.slot);
-
-                // 3. Filter Logic: Hide Common Slot if it is empty or fully booked
-                const availableOptions = rest.filter(({ id }) => {
-                    
-                    // --- CASE A: It is a Common Slot (Time Range) ---
-                    if (id && id.startsWith('PRE-S_')) {
-                        
-                        // Step 1: Generate the hypothetical sub-slots for this range
-                        // We use '0' as a default nodeCount since we are just checking availability
-                        const potentialSubSlots = generateSubSlotOptions(id, 0);
-
-                        // Step 2: Remove the "Select Specific Time" header
-                        const validSubSlots = potentialSubSlots.filter(s => s.id !== 'HEADER_2');
-
-                        // Step 3: If generation failed (empty array), HIDE this common slot
-                        if (!validSubSlots || validSubSlots.length === 0) {
-                            return false; 
-                        }
-
-                        // Step 4: Check availability against the Database
-                        // We want to count how many sub-slots are NOT booked
-                        const availableSubSlotsCount = validSubSlots.filter(
-                            sub => !bookedSlotIds.includes(sub.id)
-                        ).length;
-
-                        // Step 5: Final Decision
-                        // If available count is > 0, SHOW the Common Slot.
-                        // If available count is 0, HIDE the Common Slot.
-                        return availableSubSlotsCount > 0;
-                    }
-
-                    // --- CASE B: It is already a Sub Slot (Specific Time) ---
-                    // Just check if this specific ID is booked
-                    if (id && id.startsWith('PRE-SUB_')) {
-                        return !bookedSlotIds.includes(id);
-                    }
-
-                    // --- CASE C: Standard Option (Text) ---
-                    // Always show normal options
-                    return true;
-                });
-
-                // 4. If NO options remain after filtering, reset user and show message
+                const availableOptions = rest.filter(({ id }) => !bookedSlotIds.includes(id));
                 if (!availableOptions?.length) {
-                    
                     await clearUserSessionData(userPhone);
                     resetUserInput();
-
                     return {
-                        message: `😔 Sorry ${profileName}, all slots for this selection are fully booked. Please try choosing a different date.`
+                        message: `😔 Sorry ${profileName}, all slots for this selection are fully booked. Please try choosing a different date or time.`
                     };
-
                 } else {
-                    // 5. Return the filtered list
                     const optionsData = {
                         mainTitle,
                         type: type.toLowerCase(),
@@ -1556,6 +1404,87 @@ const createAIResponse = async (chatData) => {
                     };
                 }
             }
+
+
+
+            // if (Array.isArray(options) && options?.length > 0) {
+            //     const [{ id: firstId, value: mainTitle, type }, ...rest] = options;
+
+            //     // 2. Fetch all booked/processing slots from DB
+            //     // We need this list to check if the sub-slots are free
+            //     const bookedSlots = await Slots?.find({
+            //         user: userId,
+            //         flowId: session?.selectedFlowId, 
+            //         status: { $in: ['booked', 'underProcess'] }
+            //     });
+
+            //     const bookedSlotIds = bookedSlots.map(s => s.slot);
+
+            //     // 3. Filter Logic: Hide Common Slot if it is empty or fully booked
+            //     const availableOptions = rest.filter(({ id }) => {
+                    
+            //         // --- CASE A: It is a Common Slot (Time Range) ---
+            //         if (id && id.startsWith('PRE-S_')) {
+                        
+            //             // Step 1: Generate the hypothetical sub-slots for this range
+            //             // We use '0' as a default nodeCount since we are just checking availability
+            //             const potentialSubSlots = generateSubSlotOptions(id, 0);
+
+            //             // Step 2: Remove the "Select Specific Time" header
+            //             const validSubSlots = potentialSubSlots.filter(s => s.id !== 'HEADER_2');
+
+            //             // Step 3: If generation failed (empty array), HIDE this common slot
+            //             if (!validSubSlots || validSubSlots.length === 0) {
+            //                 return false; 
+            //             }
+
+            //             // Step 4: Check availability against the Database
+            //             // We want to count how many sub-slots are NOT booked
+            //             const availableSubSlotsCount = validSubSlots.filter(
+            //                 sub => !bookedSlotIds.includes(sub.id)
+            //             ).length;
+
+            //             // Step 5: Final Decision
+            //             // If available count is > 0, SHOW the Common Slot.
+            //             // If available count is 0, HIDE the Common Slot.
+            //             return availableSubSlotsCount > 0;
+            //         }
+
+            //         // --- CASE B: It is already a Sub Slot (Specific Time) ---
+            //         // Just check if this specific ID is booked
+            //         if (id && id.startsWith('PRE-SUB_')) {
+            //             return !bookedSlotIds.includes(id);
+            //         }
+
+            //         // --- CASE C: Standard Option (Text) ---
+            //         // Always show normal options
+            //         return true;
+            //     });
+
+            //     // 4. If NO options remain after filtering, reset user and show message
+            //     if (!availableOptions?.length) {
+                    
+            //         await clearUserSessionData(userPhone);
+            //         resetUserInput();
+
+            //         return {
+            //             message: `😔 Sorry ${profileName}, all slots for this selection are fully booked. Please try choosing a different date.`
+            //         };
+
+            //     } else {
+            //         // 5. Return the filtered list
+            //         const optionsData = {
+            //             mainTitle,
+            //             type: type.toLowerCase(),
+            //             resp: availableOptions.map(({ id, value }) => ({ _id: id, title: value })),
+            //         };
+
+            //         return {
+            //             optionsArray: optionsData,
+            //             isQuestion: true
+            //         };
+            //     }
+            // }
 
             if (!cleanAIResp) {
                 await clearUserSessionData(userPhone);

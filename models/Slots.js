@@ -13,6 +13,7 @@ const SlotsSchema = new Schema(
             required: true,
         },
         currentNode: Number,
+        SlotId: Number,
         whatsappNumber: {
             type: String,
             required: true,

@@ -15,7 +15,7 @@ let provider = null;
                 model: 'gemini-2.5-flash-lite',
                 generationConfig: {
                     maxOutputTokens: 120,
-                    temperature: 0.2,
+                    temperature: 0.3,
                 },
             });
             provider = 'Gemini API';
@@ -42,7 +42,7 @@ let provider = null;
             model: 'gemini-2.5-flash-lite',
             generationConfig: {
                 maxOutputTokens: 120,
-                temperature: 0.2,
+                temperature: 0.3,
             },
         });
 
@@ -146,7 +146,7 @@ const processQueue = async (userId) => {
 const generateAIResponse = async (
     prompt,
     userId,
-    options = { systemPrompt: null, jsonMode: false }
+    options = { systemPrompt: null, jsonMode: false, temperature }
 ) => {
     if (!model) return '⚠️ AI warming up. Please try again.';
     if (!prompt || typeof prompt !== 'string') return null;
@@ -162,7 +162,7 @@ const generateAIResponse = async (
             : prompt;
 
         const generationConfig = {
-            temperature: 0.4,
+            temperature:options.temperature,
             ...(options.jsonMode && { responseMimeType: 'application/json' }),
         };
 

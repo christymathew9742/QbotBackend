@@ -1,48 +1,34 @@
-const buildPrompt = ({ fieldName, fieldType, conversationData }) => {
-  const recentHistory = conversationData.slice(-30).join('\n');
+const safeJSONParse = (input) => {
+  if (typeof input === 'object') return input;
+  try {
+    const cleaned = input.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error('Failed to parse JSON');
+  }
+};
 
-  return `
-    Role: Eva, professional appointment assistant.
-    Goal: Extract the "${fieldName}" value.
+const buildPrompt = ({ fieldName, conversationData }) => {
+  const recentHistory = conversationData.slice(-2).join('\n');
+  
+  return`
+Role: Eva, Appointment Assistant.
+Task: Extract "${fieldName}".
+History:
+${recentHistory}
 
-    Conversation History:
-    ${recentHistory}
+Rules:
+1. Analyze the last User response.
+2. Return JSON ONLY.
+3. Schema: {"value": string|null, "reply": string, "status": "valid"|"abusive"|"off_topic"|"emoji_only"|"invalid", "sentiment": "neutral"|"happy"|"sad"|"angry"}
 
-    Instructions:
-    1. LOOK at the "Last Assistant Question" in the history.
-    2. ANALYZE the "User's Latest Input":
-      - Does it logically answer the question?
-      - Is it the correct data type (e.g., date vs name) for "${fieldName}"?
-
-    3. DETERMINE STATUS:
-      - IF VALID (User answered the question):
-        -> "status": "valid"
-        -> "value": [Extract the clean value]
-        -> "reply": [Brief confirmation, e.g., "Thanks, got it."]
-        
-      - IF ABUSIVE/RUDE:
-        -> "status": "abusive"
-        -> "value": null
-        -> "reply": [De-escalate politely, then IMMEDIATELY ask for "${fieldName}" again.]
-
-      - IF OFF-TOPIC / UNRELATED (User asks something else):
-        -> "status": "off_topic"
-        -> "value": null
-        -> "reply": [Answer their question briefly/politely, then IMMEDIATELY ask for "${fieldName}" again.]
-
-      - IF EMOJI ONLY:
-        -> "status": "invalid"
-        -> "value": null
-        -> "reply": [React to the emoji sentiment, then gently ask for "${fieldName}" again.]
-
-      - IF UNCLEAR/INVALID:
-        -> "status": "invalid"
-        -> "value": null
-        -> "reply": [Politely clarify what is needed and ask for "${fieldName}" again.]
-
-    Output JSON ONLY:
-    {"value": string|null, "reply": string, "status": "valid"|"invalid"|"off_topic"|"abusive", "sentiment": "neutral"|"happy"|"sad"|"angry"}
-  `.trim();
+Logic:
+- VALID (User provided "${fieldName}"): value=[Clean Data], status="valid", reply="[Brief confirmation]"
+- EMOJI ONLY: value=null, status="emoji_only", reply="[React to emoji (empathize if emotion, name if object), then re-ask]"
+- ABUSIVE: value=null, status="abusive", reply="[De-escalate, ignore insults, pivot to re-ask]"
+- OFF-TOPIC: value=null, status="off_topic", reply="[Answer briefly, then re-ask]"
+- INVALID/UNCLEAR: value=null, status="invalid", reply="[Clarify what is needed, then re-ask]"
+`.trim(); 
 };
 
 const generateDynamicFlowData = async ({
@@ -55,7 +41,6 @@ const generateDynamicFlowData = async ({
   
   const systemPrompt = buildPrompt({
     fieldName: req.fieldName,
-    fieldType: req.fieldType,
     conversationData,
   });
 
@@ -66,17 +51,18 @@ const generateDynamicFlowData = async ({
       {
         systemPrompt,
         jsonMode: true,
-        temperature: 0.2 
+        temperature: 0.3,
       }
     );
 
-    const data = typeof jsonResponse === 'string' ? JSON.parse(jsonResponse) : jsonResponse;
+    const data = safeJSONParse(jsonResponse);
     
     if (!data.reply) data.reply = "Could you please clarify that?";
     
     return data;
 
   } catch (error) {
+    console.error("AI Extraction Error:", error);
     return {
       value: null,
       reply: "I'm having a little trouble connecting. Could you please repeat that?",
