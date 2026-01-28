@@ -5,10 +5,10 @@
 // const { generateAIResponse, clearUserTracking } = require('../model/aiModel');
 // const {
 //     cleanAIResponse,
-//     // safeParseOptions,
 //     parseChatHistory,
 //     fillMissingSentimentFields,
 //     onWebhookEvent,
+//     generateRefID,
 // } = require('../../utils/common');
 // const {
 //     isAbusive,
@@ -22,6 +22,10 @@
 // const { sendToUser } = require('../../utils/notifications');
 // const Slots = require('../../models/Slots');
 // const { generateDynamicFlowData } = require('../training/conversationFlowGenerator');
+// const { generateAndSendBookingSlip } = require('./bookingSlipGenerator');
+// const { createBookingEvent } = require('../../services/googleCalendarService');
+
+// const SESSION_TIMEOUT_MINUTES = 3;
 
 // const userConversationHistories = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
 // const userLocks = new Map();
@@ -62,6 +66,7 @@
 //     ];
 
 //     session.conversation.push(...newTurn);
+//     session.lastInteractionTime = new Date();
 //     userConversationHistories.set(userPhone, session);
 // };
 
@@ -110,7 +115,21 @@
 
 //     return await mutex.runExclusive(async () => {
 //         try {
-//             let userPrompt = userOption || prompt;
+//             let userPrompt = /^[a-f\d]{24}$/i.test(userOption) ? prompt : (userOption || prompt);
+//             let session = userConversationHistories.get(userPhone);
+
+//             if (session && session.lastInteractionTime) {
+//                 const lastTime = new Date(session.lastInteractionTime).getTime();
+//                 const currentTime = new Date().getTime();
+//                 const diffMinutes = (currentTime - lastTime) / (1000 * 60);
+
+//                 if (diffMinutes > SESSION_TIMEOUT_MINUTES) {
+//                     console.log(`⏱️ Session timed out for ${userPhone} after ${diffMinutes.toFixed(2)} mins. Resetting flow.`);
+//                     await clearUserSessionData(userPhone);
+//                     session = undefined;
+//                 }
+//             }
+
 //             let existingAppointment;
 //             try {
 //                 existingAppointment = await AppointmentModal.findOne({
@@ -125,7 +144,7 @@
 
 //             const messagePrefix = `Hi ${existingAppointment?.data?.name || profileName || 'there'}`
 
-//             let session = userConversationHistories.get(userPhone) || {
+//             session = session || {
 //                 conversation: [],
 //                 selectedFlowId: null,
 //                 userOptionsShown: false,
@@ -133,6 +152,7 @@
 //                 awaitingRescheduleOrCancel: false,
 //                 userHandledExistingAppointmentOption: false,
 //                 flowState: null,
+//                 lastInteractionTime: new Date()
 //             };
 
 //             if (session.userOptionsShown && userOption) {
@@ -140,7 +160,6 @@
 //                 userConversationHistories.set(userPhone, session);
 //             }
 
-//             // --- USER CANCELLATION LOGIC ---
 //             if (userOption === "cancel") {
 //                 try {
 //                     const result = await AppointmentModal.updateOne(
@@ -173,7 +192,7 @@
 //                         { new: true, upsert: true }
 //                     );
 
-//                     await Slots.deleteMany ({
+//                     await Slots.deleteMany({
 //                         status: 'booked',
 //                         user: userId,
 //                         whatsappNumber: userPhone,
@@ -207,8 +226,7 @@
 //                 }
 //             }
 
-//             // --- USER RESCHEDULE LOGIC ---
-//             if (userOption === 'reschedule') {
+//             if (userOption === 'reschedule' || userOption === 'reschedule_all') {
 //                 session.selectedFlowId = session.existingUserData?.flowId || existingAppointment?.flowId || null
 //                 session.conversation = [];
 //                 session.awaitingRescheduleOrCancel = false;
@@ -217,102 +235,129 @@
 //                 userConversationHistories.set(userPhone, session);
 //             }
 
-//             // ==========================================================
-//             // 🔥 FIXED & UPDATED SLOT LOCKING LOGIC
-//             // ==========================================================
-//             const HOLD_MINUTES = parseInt(process.env.HOLD_MINUTES) || 1;
-//             const expirationThreshold = new Date(Date.now() - HOLD_MINUTES * 60 * 1000);
+//             // ============================================================
+//             // RESCHEDULE SETUP 
+//             // ============================================================
+//             if (userOption === 'reschedule_slot') {
+//                 const targetFlowId = session.existingUserData?.flowId || existingAppointment?.flowId || null;
+//                 session.selectedFlowId = targetFlowId;
+//                 session.conversation = [];
+//                 session.userHandledExistingAppointmentOption = true;
 
-//             if (userOption && userOption.startsWith('PRE-SUB_')) {
-
+//                 let flowDataForReschedule = null;
 //                 try {
-//                     await Slots.findOneAndUpdate(
-//                         {
-//                             user: userId,
-//                             whatsappNumber: userPhone,
-//                             flowId: session.selectedFlowId,
-//                         },
-//                         {
-//                             $set: {
-//                                 slot: userOption,
-//                                 status: 'underProcess',
-//                                 updatedAt: new Date()
-//                             },
-//                         },
-//                         { new: true, upsert: true, setDefaultsOnInsert: true }
-//                     );
-
-//                 } catch (createError) {
-//                     const isDuplicate = createError.code === 11000 || createError.code === '11000' || (createError.message && createError.message.includes('E11000'));
-
-//                     if (isDuplicate) {
-//                         const lockedSlot = await Slots.findOneAndUpdate(
-//                             {
-//                                 slot: userOption,
-//                                 flowId: session.selectedFlowId,
-//                                 $or: [
-//                                     { status: 'available' },
-//                                     { status: 'underProcess', updatedAt: { $lt: expirationThreshold } }
-//                                 ]
-//                             },
-//                             {
-//                                 $set: {
-//                                     user: userId,
-//                                     whatsappNumber: userPhone,
-//                                     status: 'underProcess',
-//                                     updatedAt: new Date()
-//                                 }
-//                             },
-//                             { new: true }
-//                         );
-
-//                         if (!lockedSlot) {
-//                             await clearUserSessionData(userPhone);
-//                             resetUserInput();
-//                             return { message: `😔 Sorry ${profileName}, that slot was just booked by someone else. Please select a different time.` };
-//                         }
-//                     } else {
-//                         console.error("System Slot Error:", createError);
-//                         throw createError;
-//                     }
+//                     flowDataForReschedule = await ChatBotModel.findOne(
+//                         { _id: targetFlowId, user: userId, status: true },
+//                         'nodes edges title'
+//                     ).lean();
+//                 } catch (err) {
+//                     console.error("Reschedule Fetch Error", err);
 //                 }
 
-//             } else {
+//                 if (flowDataForReschedule && flowDataForReschedule.nodes) {
+//                     const targetNodeCount = existingAppointment?.currentNode;
+//                     let targetSlotNode = null;
+//                     let targetSlotInputIndex = 0;
+//                     let targetFieldName = null;
 
-//                 await Slots.findOneAndUpdate(
-//                     {
-//                         user: userId,
-//                         flowId: session.selectedFlowId,
-//                         whatsappNumber: userPhone,
-//                         status: 'underProcess'
-//                     },
-//                     { $set: { updatedAt: new Date() } }
-//                 );
+//                     for (const node of flowDataForReschedule.nodes) {
+//                         if (node.data?.nodeCount === targetNodeCount) {
+//                             const inputs = node.data?.inputs || [];
+//                             const slotIndex = inputs.findIndex(input =>
+//                                 input.type === 'Slot' && Array.isArray(input.slots) && input.slots.length > 0
+//                             );
 
-//                 await Slots.deleteMany({
-//                     status: 'underProcess',
-//                     user: userId, 
-//                     flowId: session.selectedFlowId,
-//                     updatedAt: { $lt: expirationThreshold }
-//                 });
+//                             if (slotIndex !== -1) {
+//                                 targetSlotNode = node;
+//                                 targetSlotInputIndex = slotIndex;
+//                                 targetFieldName = inputs[slotIndex].field;
+//                                 break;
+//                             }
+//                         }
+//                     }
+
+//                     const retainedData = existingAppointment?.data ? JSON.parse(JSON.stringify(existingAppointment.data)) : {};
+
+//                     if (targetSlotNode && targetFieldName) {
+//                         if (retainedData[targetFieldName]) {
+//                             delete retainedData[targetFieldName];
+//                         }
+
+//                         Object.keys(retainedData).forEach(key => {
+//                             if (key === targetFieldName && typeof retainedData[key] === 'string' && retainedData[key].startsWith('PRE-')) {
+//                                 delete retainedData[key];
+//                             }
+//                         });
+//                     }
+
+//                     let finalNodeId = null;
+//                     if (flowDataForReschedule.edges) {
+//                         const sourceNodeIds = new Set(flowDataForReschedule.edges.map(e => e.source));
+//                         const targetNodeIds = new Set(flowDataForReschedule.edges.map(e => e.target));
+
+//                         for (const id of targetNodeIds) {
+//                             if (!sourceNodeIds.has(id)) {
+//                                 finalNodeId = id;
+//                                 break;
+//                             }
+//                         }
+//                     }
+
+//                     session.flowState = {
+//                         currentNodeId: targetSlotNode ? targetSlotNode.id : null,
+//                         inputIndex: targetSlotInputIndex || 0,
+//                         collected: retainedData,
+//                         retryCount: 0,
+//                         overrideNextNodeId: finalNodeId,
+//                         startNodeId: targetSlotNode ? targetSlotNode.id : null
+//                     };
+
+//                     console.log(`Reschedule: Target Count[${targetNodeCount}] -> Node[${targetSlotNode?.id}] -> Field[${targetFieldName}]`);
+//                 }
+
+//                 userConversationHistories.set(userPhone, session);
+//                 userPrompt = null;
 //             }
-//             // ==========================================================
-//             // END FIXED SLOT LOGIC
-//             // ==========================================================
+
 
 //             if (
 //                 existingAppointment &&
 //                 !session.userHandledExistingAppointmentOption &&
-//                 !['cancel', 'reschedule'].includes(userOption)
+//                 !['cancel', 'reschedule', 'reschedule_all', 'reschedule_slot'].includes(userOption)
 //             ) {
 //                 session.existingUserData = existingAppointment;
 //                 userConversationHistories.set(userPhone, session);
+
+//                 let hasActiveSlots = existingAppointment.hasSlots;
+
+//                 try {
+//                     const liveFlowData = await ChatBotModel.findOne(
+//                         { _id: existingAppointment.flowId, user: userId },
+//                         'nodes'
+//                     ).lean();
+
+//                     if (liveFlowData?.nodes) {
+//                         const foundSlot = liveFlowData.nodes.some(n =>
+//                             n.data?.inputs?.some(i => i.type === 'Slot' && i.slots?.length > 0)
+//                         );
+//                         hasActiveSlots = foundSlot;
+//                     }
+//                 } catch (e) { }
+
+//                 const rescheduleOption = hasActiveSlots
+//                     ? { _id: 'reschedule_slot', title: 'Reschedule Slot' }
+//                     : { _id: 'reschedule_all', title: 'Update Details' };
+
+//                 const mainTitleText = hasActiveSlots
+//                     ? `🙌 ${messagePrefix}, welcome back! You already have a booking. Would you like to change the time 🕒 or cancel ❌?`
+//                     : `🙌 ${messagePrefix}, welcome back! You already have a booking. Would you like to update details 📝 or cancel ❌?`;
+
 //                 return {
 //                     optionsArray: {
-//                         mainTitle: `🙌 ${messagePrefix}, welcome back again! You already have an appointment. Would you like to cancel ❌ or reschedule 🔄 it?`,
+//                         mainTitle: mainTitleText,
 //                         type: 'list',
 //                         resp: [
-//                             { _id: 'reschedule', title: 'Reschedule Appointment' },
+//                             rescheduleOption,
 //                             { _id: 'cancel', title: 'Cancel Appointment' },
 //                         ],
 //                     },
@@ -353,6 +398,7 @@
 //                 session.selectedFlowId = userOption;
 //             }
 
+//             session.lastInteractionTime = new Date();
 //             userConversationHistories.set(userPhone, session, 300);
 
 //             let flowTrainingData;
@@ -372,28 +418,30 @@
 //             }
 
 //             // ============================================================
-//             // 🔥 SMART HYBRID AI FILTER (FIXED)
+//             // 🔥 SMART HYBRID AI FILTER
 //             // ============================================================
-
 //             let processedInput = userPrompt;
 //             let shouldRunFlow = true;
 //             let aiLoopReply = null;
+//             session.flowState = session.flowState || {};
 
-//             const req = getFlowRequirements(session.flowState, flowTrainingData, processedInput);
+//             const req = await getFlowRequirements(
+//                 session.flowState,
+//                 flowTrainingData,
+//                 processedInput,
+//                 userId,
+//                 session.existingUserData?.flowId || existingAppointment?.flowId || null,
+//             );
 //             const conversationData = session.conversation.map(c => `${c.sender}: ${c.message}`);
-//             const currentRetryCount = req?.retryCount || 0;
 //             const optionsLabel = req?.optionsLabel || '';
+//             const currentRetryCount = req?.retryCount || session.flowState?.retryCount || 0;
 
 //             if (req?.needsInput && userPrompt) {
-//                 session.flowState = session.flowState || {};
-//                 const currentRetryCount = session.flowState.retryCount + 1 || 0;
-
 //                 const validationFailed = req?.isValid;
 //                 const isAbus = isAbusive(userPrompt);
 //                 const isEmoji = isEmojiOnly(userPrompt);
 //                 const hasHistory = !!conversationData?.length;
 //                 const isTextField = req?.fieldType?.toLowerCase() === 'text';
-//                 const isRetryExceeded = currentRetryCount >= 20;
 
 //                 const needsAI =
 //                     (isAbus || isEmoji) ||
@@ -401,27 +449,22 @@
 //                     (isTextField && hasHistory);
 
 //                 if (needsAI) {
-//                     console.log(
-//                         '[AI CHECK]',
-//                         { currentRetryCount, isAbus, isEmoji, isTextField, hasHistory }
-//                     );
-
 //                     try {
 //                         const parsedAI = await generateDynamicFlowData({
 //                             userInput: userPrompt,
 //                             userPhone,
 //                             req,
 //                             conversationData,
-//                             generateAIResponse
+//                             generateAIResponse,
 //                         });
 
 //                         if (parsedAI?.status === 'valid' && parsedAI.value) {
 //                             processedInput = parsedAI.value;
 //                             shouldRunFlow = true;
-//                             session.flowState.retryCount = 0;
+//                             if (session.flowState) session.flowState.retryCount = 0;
 //                         } else {
 //                             shouldRunFlow = false;
-//                             session.flowState.retryCount = currentRetryCount + 1;
+//                             if (session.flowState) session.flowState.retryCount = currentRetryCount + 1;
 
 //                             aiLoopReply =
 //                                 parsedAI?.reply ||
@@ -430,7 +473,7 @@
 //                     } catch (error) {
 //                         console.error('AI Processing Error:', error);
 //                         shouldRunFlow = false;
-//                         session.flowState.retryCount = currentRetryCount + 1;
+//                         if (session.flowState) session.flowState.retryCount = currentRetryCount + 1;
 //                         aiLoopReply = "Something went wrong. Please try again shortly.";
 //                     }
 //                 }
@@ -443,7 +486,68 @@
 //                     processedInput,
 //                     flowTrainingData,
 //                     currentRetryCount,
+//                     profileName,
+//                     userId,
+//                     session.existingUserData?.flowId || existingAppointment?.flowId || null,
+//                     async () => await clearUserSessionData(userPhone),
+//                     resetUserInput
 //                 );
+
+//                 // SAFE INTERCEPTOR
+//                 if (session.flowState?.overrideNextNodeId) {
+//                     const targetId = session.flowState.overrideNextNodeId;
+//                     const startId = session.flowState.startNodeId;
+//                     const currentId = generatedPrompt?.state?.currentNodeId;
+
+//                     if (currentId && currentId !== targetId && currentId !== startId) {
+//                         generatedPrompt.state.currentNodeId = targetId;
+//                         generatedPrompt.state.inputIndex = 0;
+
+//                         delete session.flowState.overrideNextNodeId;
+//                         delete session.flowState.startNodeId;
+
+//                         generatedPrompt = await generateDynamicPrompt(
+//                             generatedPrompt.state,
+//                             null,
+//                             flowTrainingData,
+//                             0,
+//                             profileName,
+//                             userId,
+//                             session.existingUserData?.flowId || existingAppointment?.flowId || null,
+//                             async () => await clearUserSessionData(userPhone),
+//                             resetUserInput
+//                         );
+//                     }
+//                 }
+
+//                 while (!generatedPrompt.done && generatedPrompt.state) {
+//                     const { currentNodeId, inputIndex, collected } = generatedPrompt.state;
+//                     const node = flowTrainingData.nodes.find(n => n.id === currentNodeId);
+//                     const input = node?.data?.inputs?.[inputIndex || 0];
+
+//                     if (!input) break;
+
+//                     const isSlot = input.type === 'Slot';
+//                     const fieldName = input.field || 'preference';
+//                     const existingValue = collected[fieldName];
+
+//                     if (!isSlot && existingValue) {
+//                         generatedPrompt = await generateDynamicPrompt(
+//                             generatedPrompt.state,
+//                             existingValue,
+//                             flowTrainingData,
+//                             0,
+//                             profileName,
+//                             userId,
+//                             session.existingUserData?.flowId || existingAppointment?.flowId || null,
+//                             async () => await clearUserSessionData(userPhone),
+//                             resetUserInput
+//                         );
+//                     } else {
+//                         break;
+//                     }
+//                 }
+
 //             } else {
 //                 generatedPrompt = {
 //                     reply: aiLoopReply,
@@ -451,10 +555,86 @@
 //                     state: session.flowState
 //                 };
 //             }
-// console.log(generatedPrompt)
-//             // ============================================================
-//             // END SMART LOGIC
-//             // ============================================================
+// console.log(session.flowState,'<<SESSION STATE>>');
+//             // ==========================================================
+//             // 🔥 SLOT LOCKING LOGIC
+//             // ==========================================================
+//             const HOLD_MINUTES = parseInt(process.env.HOLD_MINUTES) || 3;
+//             const expirationThreshold = new Date(Date.now() - HOLD_MINUTES * 60 * 1000);
+
+//             if (userOption && userOption.startsWith('PRE-SUB_')) {
+//                 const parts = userOption.split('_');
+//                 const SlotId = parseInt(parts[4] || '0', 10);
+
+//                 try {
+//                     await Slots.findOneAndUpdate(
+//                         {
+//                             user: userId,
+//                             whatsappNumber: userPhone,
+//                             flowId: session.selectedFlowId,
+//                         },
+//                         {
+//                             $set: {
+//                                 slot: userOption,
+//                                 currentNode: generatedPrompt?.state?.nodeCount,
+//                                 SlotId,
+//                                 status: 'underProcess',
+//                                 updatedAt: new Date()
+//                             },
+//                         },
+//                         { new: true, upsert: true, setDefaultsOnInsert: true }
+//                     );
+//                 } catch (createError) {
+//                     const isDuplicate = createError.code === 11000 || createError.code === '11000' || (createError.message && createError.message.includes('E11000'));
+//                     if (isDuplicate) {
+//                         const lockedSlot = await Slots.findOneAndUpdate(
+//                             {
+//                                 slot: userOption,
+//                                 flowId: session.selectedFlowId,
+//                                 $or: [
+//                                     { status: 'available' },
+//                                     { status: 'underProcess', updatedAt: { $lt: expirationThreshold } }
+//                                 ]
+//                             },
+//                             {
+//                                 $set: {
+//                                     user: userId,
+//                                     whatsappNumber: userPhone,
+//                                     status: 'underProcess',
+//                                     updatedAt: new Date()
+//                                 }
+//                             },
+//                             { new: true }
+//                         );
+
+//                         if (!lockedSlot) {
+//                             await clearUserSessionData(userPhone);
+//                             resetUserInput();
+//                             return { message: `😔 Sorry ${profileName}, that slot was just booked by someone else. Please select a different time.` };
+//                         }
+//                     } else {
+//                         console.error("System Slot Error:", createError);
+//                         throw createError;
+//                     }
+//                 }
+//             } else {
+//                 await Slots.findOneAndUpdate(
+//                     {
+//                         user: userId,
+//                         flowId: session.selectedFlowId,
+//                         whatsappNumber: userPhone,
+//                         status: 'underProcess'
+//                     },
+//                     { $set: { updatedAt: new Date() } }
+//                 );
+
+//                 await Slots.deleteMany({
+//                     status: 'underProcess',
+//                     user: userId,
+//                     flowId: session.selectedFlowId,
+//                     updatedAt: { $lt: expirationThreshold }
+//                 });
+//             }
 
 //             session.flowState = generatedPrompt.state;
 //             userConversationHistories.set(userPhone, session);
@@ -468,34 +648,24 @@
 //             const cleanAIResp = cleanAIResponse(aiResponse);
 //             const messageParts = cleanAIResp?.split(',')?.map(p => p.trim()).filter(Boolean) || [];
 
-//             if (Array.isArray(options) && options?.length > 0) {
-//                 const [{ id: firstId, value: mainTitle, type }, ...rest] = options;
-//                 const bookedSlots = await Slots?.find({
-//                     user: userId,
-//                     flowId: session?.selectedFlowId,
-//                     status: { $in: ['booked', 'underProcess'] }
-//                 });
+//             if (Array.isArray(options) && options.length > 0) {
+//                 const [{ value: mainTitle, type }, ...rest] = options;
 
-//                 const bookedSlotIds = bookedSlots.map(s => s.slot);
-//                 const availableOptions = rest.filter(({ id }) => !bookedSlotIds.includes(id));
-//                 if (!availableOptions?.length) {
+//                 if (!rest.length) {
 //                     await clearUserSessionData(userPhone);
 //                     resetUserInput();
 //                     return {
 //                         message: `😔 Sorry ${profileName}, all slots for this selection are fully booked. Please try choosing a different date or time.`
 //                     };
-//                 } else {
-//                     const optionsData = {
-//                         mainTitle,
-//                         type: type.toLowerCase(),
-//                         resp: availableOptions.map(({ id, value }) => ({ _id: id, title: value })),
-//                     };
-
-//                     return {
-//                         optionsArray: optionsData,
-//                         isQuestion: true
-//                     };
 //                 }
+//                 return {
+//                     optionsArray: {
+//                         mainTitle,
+//                         type: type?.toLowerCase(),
+//                         resp: rest.map(({ id, value }) => ({ _id: id, title: value })),
+//                     },
+//                     isQuestion: true
+//                 };
 //             }
 
 //             if (!cleanAIResp) {
@@ -513,6 +683,7 @@
 //                     const appointmentUid = new mongoose.Types.ObjectId();
 //                     const appointmentData = generatedPrompt.done && generatedPrompt.state && generatedPrompt.state.collected ? generatedPrompt.state.collected : '';
 //                     let firstUserCreated = userRespondTime;
+//                     const finalRefId = existingAppointment?.refId || await generateRefID();
 
 //                     if (
 //                         !appointmentData ||
@@ -526,15 +697,81 @@
 //                         }
 //                         return { message: cleanAIResp };
 //                     }
-                    
-//                     if(generatedPrompt.state.isActiveSlots) {
+
+//                     // if (generatedPrompt.state.isActiveSlots) {
+//                     //     try {
+//                     //         const bookedSlot = await Slots.findOneAndUpdate(
+//                     //             {
+//                     //                 user: userId,
+//                     //                 whatsappNumber: userPhone,
+//                     //                 flowId: session.selectedFlowId,
+//                     //                 status: 'underProcess'
+//                     //             },
+//                     //             {
+//                     //                 $set: {
+//                     //                     status: 'booked',
+//                     //                     updatedAt: new Date()
+//                     //                 }
+//                     //             },
+//                     //             { new: true }
+//                     //         );
+
+//                     //         if (!bookedSlot) {
+//                     //             throw new Error('SLOT_EXPIRED');
+//                     //         }
+
+//                     //         const slotDisplayString = bookedSlot.slot
+//                     //             .replace('PRE-SUB_', '') 
+//                     //             .split('_')
+//                     //             .slice(0, 3)
+//                     //             .join(' '); 
+
+//                     //         await generateAndSendBookingSlip(userPhone, {
+//                     //             refId: finalRefId,
+//                     //             userId: userId, 
+//                     //             flowTitle: flowTrainingData?.title || "Appointment",
+//                     //             slot: slotDisplayString || "Confirmed Time",
+//                     //             data: appointmentData
+//                     //         });
+
+
+
+
+//                     //     } catch (err) {
+//                     //         if (err.message === 'SLOT_EXPIRED') {
+
+//                     //             const alreadyBooked = await Slots.findOne({
+//                     //                 user: userId,
+//                     //                 flowId: session.selectedFlowId,
+//                     //                 status: 'booked'
+//                     //             });
+
+//                     //             if (alreadyBooked) {
+//                     //                 return { message: `👍 You have already confirmed this slot for ${alreadyBooked.slot}.` };
+//                     //             }
+
+//                     //             await clearUserSessionData(userPhone);
+//                     //             resetUserInput();
+//                     //             return {
+//                     //                 message: `⏳ Sorry ${profileName}, your booking session timed out. The slot is no longer reserved. Please try selecting a time again.`
+//                     //             };
+//                     //         }
+//                     //     }
+//                     // }
+
+//                     // At the top of your aiservice.js file
+
+//                     // ... inside your function ...
+
+//                     if (generatedPrompt.state.isActiveSlots) {
 //                         try {
-//                             const bookedSlot = await Slots.findOneAndUpdate (
+//                             // 1. Database Update (Atomic Lock)
+//                             const bookedSlot = await Slots.findOneAndUpdate(
 //                                 {
 //                                     user: userId,
 //                                     whatsappNumber: userPhone,
 //                                     flowId: session.selectedFlowId,
-//                                     status: 'underProcess' 
+//                                     status: 'underProcess'
 //                                 },
 //                                 {
 //                                     $set: {
@@ -549,9 +786,32 @@
 //                                 throw new Error('SLOT_EXPIRED');
 //                             }
 
+//                             // 2. Prepare Display String
+//                             const slotDisplayString = bookedSlot.slot
+//                                 .replace('PRE-SUB_', '')
+//                                 .split('_')
+//                                 .slice(0, 3) 
+//                                 .join(' ');
+
+//                             // 3. Send Booking Slip (WhatsApp)
+//                             await generateAndSendBookingSlip(userPhone, {
+//                                 refId: finalRefId,
+//                                 userId: userId,
+//                                 flowTitle: flowTrainingData?.title || "Appointment",
+//                                 slot: slotDisplayString || "Confirmed Time",
+//                                 data: appointmentData
+//                             });
+
+//                             // 4. ⚡ TRIGGER GOOGLE CALENDAR SYNC (Live) ⚡
+//                             // We run this without 'await' if we don't want to delay the user response, 
+//                             // OR with 'await' if we want to ensure it finishes before replying.
+//                             // Using await here is safer to ensure logs capture errors.
+//                             await createBookingEvent(userId, bookedSlot, {
+//                                 title: flowTrainingData?.title || "Consultation"
+//                             });
+
 //                         } catch (err) {
 //                             if (err.message === 'SLOT_EXPIRED') {
-
 //                                 const alreadyBooked = await Slots.findOne({
 //                                     user: userId,
 //                                     flowId: session.selectedFlowId,
@@ -564,15 +824,15 @@
 
 //                                 await clearUserSessionData(userPhone);
 //                                 resetUserInput();
-//                                 return { 
-//                                     message: `⏳ Sorry ${profileName}, your booking session timed out. The slot is no longer reserved. Please try selecting a time again.` 
+//                                 return {
+//                                     message: `⏳ Sorry ${profileName}, your booking session timed out. The slot is no longer reserved. Please try selecting a time again.`
 //                                 };
 //                             }
+//                             console.error("Booking Error:", err); // Log other errors
 //                         }
 //                     }
 
 //                     if (existingAppointment) {
-
 //                         firstUserCreated = existingAppointment?.userCreated || userRespondTime;
 //                         await createNotification({
 //                             userId,
@@ -665,11 +925,13 @@
 //                                 whatsAppNumber: userPhone,
 //                                 profileName,
 //                                 userCreated: firstUserCreated,
+//                                 refId: finalRefId,
 //                             },
 //                             $set: {
 //                                 data: appointmentData || {},
-//                                 hasSlots: generatedPrompt.state.isActiveSlots || false,
-//                                 history,
+//                                 hasSlots: generatedPrompt?.state?.isActiveSlots || false,
+//                                 currentNode: generatedPrompt?.state?.nodeCount || null,
+//                                 history: parseChatHistory(session.conversation),
 //                                 rescheduleCount,
 //                                 status: existingAppointment ? "rescheduled" : "booked",
 //                                 sentimentScores: averageSentimentScoresSafe(sentimentHistory),
@@ -694,7 +956,7 @@
 //                 await clearUserSessionData(userPhone);
 //                 resetUserInput();
 //                 return {
-//                     message: `😔 Sorry ${profileName} , I couldn’t save your appointment  Let’s try again in a bit`
+//                     message: `😔 Sorry ${profileName} , I couldn’t save your appointment  Let’s try again in a bit`
 //                 };
 //             }
 
@@ -717,42 +979,17 @@
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 const NodeCache = require('node-cache');
 const { Mutex } = require('async-mutex');
 const AppointmentModal = require('../../models/AppointmentModal');
-const { generateDynamicPrompt, getFlowRequirements, generateSubSlotOptions } = require('../../ai/training/preprocess');
+const { generateDynamicPrompt, getFlowRequirements } = require('../../ai/training/preprocess');
 const { generateAIResponse, clearUserTracking } = require('../model/aiModel');
 const {
     cleanAIResponse,
-    // safeParseOptions,
     parseChatHistory,
     fillMissingSentimentFields,
     onWebhookEvent,
+    generateRefID,
 } = require('../../utils/common');
 const {
     isAbusive,
@@ -766,6 +1003,14 @@ const { createNotification } = require('../../controllers/notificationController
 const { sendToUser } = require('../../utils/notifications');
 const Slots = require('../../models/Slots');
 const { generateDynamicFlowData } = require('../training/conversationFlowGenerator');
+const { generateAndSendBookingSlip } = require('./bookingSlipGenerator');
+const { 
+    createBookingEvent, 
+    deleteBookingEvent, 
+    cleanupExpiredSlots 
+} = require('../../services/googleCalendarService');
+
+const SESSION_TIMEOUT_MINUTES = 3;
 
 const userConversationHistories = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
 const userLocks = new Map();
@@ -806,6 +1051,7 @@ const updateConversationHistory = (userPhone, prompt, aiResponse) => {
     ];
 
     session.conversation.push(...newTurn);
+    session.lastInteractionTime = new Date();
     userConversationHistories.set(userPhone, session);
 };
 
@@ -835,6 +1081,9 @@ const createAIResponse = async (chatData) => {
         whatsTimestamp,
     } = chatData;
 
+    //Remove expired slots before processing
+    await cleanupExpiredSlots(); 
+
     const mutex = getUserMutex(userPhone);
 
     if (!userPhone || !userId) {
@@ -854,7 +1103,21 @@ const createAIResponse = async (chatData) => {
 
     return await mutex.runExclusive(async () => {
         try {
-            let userPrompt = userOption || prompt;
+            let userPrompt = /^[a-f\d]{24}$/i.test(userOption) ? prompt : (userOption || prompt);
+            let session = userConversationHistories.get(userPhone);
+
+            if (session && session.lastInteractionTime) {
+                const lastTime = new Date(session.lastInteractionTime).getTime();
+                const currentTime = new Date().getTime();
+                const diffMinutes = (currentTime - lastTime) / (1000 * 60);
+
+                if (diffMinutes > SESSION_TIMEOUT_MINUTES) {
+                    console.log(`⏱️ Session timed out for ${userPhone}. Resetting flow.`);
+                    await clearUserSessionData(userPhone);
+                    session = undefined;
+                }
+            }
+
             let existingAppointment;
             try {
                 existingAppointment = await AppointmentModal.findOne({
@@ -869,7 +1132,7 @@ const createAIResponse = async (chatData) => {
 
             const messagePrefix = `Hi ${existingAppointment?.data?.name || profileName || 'there'}`
 
-            let session = userConversationHistories.get(userPhone) || {
+            session = session || {
                 conversation: [],
                 selectedFlowId: null,
                 userOptionsShown: false,
@@ -877,6 +1140,7 @@ const createAIResponse = async (chatData) => {
                 awaitingRescheduleOrCancel: false,
                 userHandledExistingAppointmentOption: false,
                 flowState: null,
+                lastInteractionTime: new Date()
             };
 
             if (session.userOptionsShown && userOption) {
@@ -884,9 +1148,13 @@ const createAIResponse = async (chatData) => {
                 userConversationHistories.set(userPhone, session);
             }
 
-            // --- USER CANCELLATION LOGIC ---
             if (userOption === "cancel") {
                 try {
+                    // 1. Delete Google Calendar Event if it exists
+                    if (existingAppointment?.googleEventId) {
+                        await deleteBookingEvent(userId, existingAppointment.googleEventId);
+                    }
+
                     const result = await AppointmentModal.updateOne(
                         {
                             whatsAppNumber: userPhone,
@@ -903,11 +1171,7 @@ const createAIResponse = async (chatData) => {
                     );
 
                     await User.findOneAndUpdate(
-                        {
-                            whatsAppNumber: userPhone,
-                            user: userId,
-
-                        },
+                        { whatsAppNumber: userPhone, user: userId, },
                         {
                             $set: {
                                 status: "cancelled",
@@ -956,13 +1220,11 @@ const createAIResponse = async (chatData) => {
                 session.conversation = [];
                 session.awaitingRescheduleOrCancel = false;
                 session.userHandledExistingAppointmentOption = true;
-                session.flowState = null; 
+                session.flowState = null;
                 userConversationHistories.set(userPhone, session);
             }
 
-            // ============================================================
-            // RESCHEDULE SETUP 
-            // ============================================================
+            // ... (Reschedule Slot Logic) ...
             if (userOption === 'reschedule_slot') {
                 const targetFlowId = session.existingUserData?.flowId || existingAppointment?.flowId || null;
                 session.selectedFlowId = targetFlowId;
@@ -980,17 +1242,15 @@ const createAIResponse = async (chatData) => {
                 }
 
                 if (flowDataForReschedule && flowDataForReschedule.nodes) {
-                    
-                    const targetNodeCount = existingAppointment?.currentNode; 
+                    const targetNodeCount = existingAppointment?.currentNode;
                     let targetSlotNode = null;
                     let targetSlotInputIndex = 0;
                     let targetFieldName = null;
 
                     for (const node of flowDataForReschedule.nodes) {
                         if (node.data?.nodeCount === targetNodeCount) {
-                            
                             const inputs = node.data?.inputs || [];
-                            const slotIndex = inputs.findIndex(input => 
+                            const slotIndex = inputs.findIndex(input =>
                                 input.type === 'Slot' && Array.isArray(input.slots) && input.slots.length > 0
                             );
 
@@ -1009,36 +1269,34 @@ const createAIResponse = async (chatData) => {
                         if (retainedData[targetFieldName]) {
                             delete retainedData[targetFieldName];
                         }
-                        
+
                         Object.keys(retainedData).forEach(key => {
                             if (key === targetFieldName && typeof retainedData[key] === 'string' && retainedData[key].startsWith('PRE-')) {
                                 delete retainedData[key];
                             }
                         });
-                    } else {
-                        console.warn(`Reschedule Warning: Could not find slot node with count ${targetNodeCount}`);
                     }
 
                     let finalNodeId = null;
                     if (flowDataForReschedule.edges) {
                         const sourceNodeIds = new Set(flowDataForReschedule.edges.map(e => e.source));
                         const targetNodeIds = new Set(flowDataForReschedule.edges.map(e => e.target));
-                        
+
                         for (const id of targetNodeIds) {
                             if (!sourceNodeIds.has(id)) {
                                 finalNodeId = id;
-                                break; 
+                                break;
                             }
                         }
                     }
 
                     session.flowState = {
-                        currentNodeId: targetSlotNode ? targetSlotNode.id : null, 
+                        currentNodeId: targetSlotNode ? targetSlotNode.id : null,
                         inputIndex: targetSlotInputIndex || 0,
                         collected: retainedData,
                         retryCount: 0,
-                        overrideNextNodeId: finalNodeId, 
-                        startNodeId: targetSlotNode ? targetSlotNode.id : null 
+                        overrideNextNodeId: finalNodeId,
+                        startNodeId: targetSlotNode ? targetSlotNode.id : null
                     };
 
                     console.log(`Reschedule: Target Count[${targetNodeCount}] -> Node[${targetSlotNode?.id}] -> Field[${targetFieldName}]`);
@@ -1056,23 +1314,23 @@ const createAIResponse = async (chatData) => {
                 session.existingUserData = existingAppointment;
                 userConversationHistories.set(userPhone, session);
 
-                let hasActiveSlots = existingAppointment.hasSlots; 
-                
+                let hasActiveSlots = existingAppointment.hasSlots;
+
                 try {
                     const liveFlowData = await ChatBotModel.findOne(
-                        { _id: existingAppointment.flowId, user: userId }, 
+                        { _id: existingAppointment.flowId, user: userId },
                         'nodes'
                     ).lean();
-                    
+
                     if (liveFlowData?.nodes) {
-                        const foundSlot = liveFlowData.nodes.some(n => 
+                        const foundSlot = liveFlowData.nodes.some(n =>
                             n.data?.inputs?.some(i => i.type === 'Slot' && i.slots?.length > 0)
                         );
                         hasActiveSlots = foundSlot;
                     }
-                } catch(e) {}
+                } catch (e) { }
 
-                const rescheduleOption = hasActiveSlots 
+                const rescheduleOption = hasActiveSlots
                     ? { _id: 'reschedule_slot', title: 'Reschedule Slot' }
                     : { _id: 'reschedule_all', title: 'Update Details' };
 
@@ -1086,7 +1344,7 @@ const createAIResponse = async (chatData) => {
                         type: 'list',
                         resp: [
                             rescheduleOption,
-                            { _id: 'cancel', title: 'Cancel Appointment'},
+                            { _id: 'cancel', title: 'Cancel Appointment' },
                         ],
                     },
                     isQuestion: true
@@ -1126,6 +1384,7 @@ const createAIResponse = async (chatData) => {
                 session.selectedFlowId = userOption;
             }
 
+            session.lastInteractionTime = new Date();
             userConversationHistories.set(userPhone, session, 300);
 
             let flowTrainingData;
@@ -1144,18 +1403,22 @@ const createAIResponse = async (chatData) => {
                 return { message: `😔📅 I'm sorry ${profileName}, but I'm unable to ${existingAppointment ? 'reschedule' : 'Book'} your appointment at the moment. Please try again later or contact us for assistance.` };
             }
 
-            // ============================================================
-            // 🔥 SMART HYBRID AI FILTER
-            // ============================================================
+            // ... (Smart Hybrid AI Logic) ...
             let processedInput = userPrompt;
             let shouldRunFlow = true;
             let aiLoopReply = null;
-            session.flowState = session.flowState || {}; 
+            session.flowState = session.flowState || {};
 
-            const req = getFlowRequirements(session.flowState, flowTrainingData, processedInput);
+            const req = await getFlowRequirements(
+                session.flowState,
+                flowTrainingData,
+                processedInput,
+                userId,
+                session.existingUserData?.flowId || existingAppointment?.flowId || null,
+            );
             const conversationData = session.conversation.map(c => `${c.sender}: ${c.message}`);
             const optionsLabel = req?.optionsLabel || '';
-            const currentRetryCount = req?.retryCount || session.flowState?.retryCount || 0; 
+            const currentRetryCount = req?.retryCount || session.flowState?.retryCount || 0;
 
             if (req?.needsInput && userPrompt) {
                 const validationFailed = req?.isValid;
@@ -1170,9 +1433,7 @@ const createAIResponse = async (chatData) => {
                     (isTextField && hasHistory);
 
                 if (needsAI) {
-                    console.log(conversationData,'conversationData')
                     try {
-                        console.log('ai invocked.....')
                         const parsedAI = await generateDynamicFlowData({
                             userInput: userPrompt,
                             userPhone,
@@ -1184,10 +1445,10 @@ const createAIResponse = async (chatData) => {
                         if (parsedAI?.status === 'valid' && parsedAI.value) {
                             processedInput = parsedAI.value;
                             shouldRunFlow = true;
-                            if(session.flowState) session.flowState.retryCount = 0;
+                            if (session.flowState) session.flowState.retryCount = 0;
                         } else {
                             shouldRunFlow = false;
-                            if(session.flowState) session.flowState.retryCount = currentRetryCount + 1;
+                            if (session.flowState) session.flowState.retryCount = currentRetryCount + 1;
 
                             aiLoopReply =
                                 parsedAI?.reply ||
@@ -1196,7 +1457,7 @@ const createAIResponse = async (chatData) => {
                     } catch (error) {
                         console.error('AI Processing Error:', error);
                         shouldRunFlow = false;
-                        if(session.flowState) session.flowState.retryCount = currentRetryCount + 1;
+                        if (session.flowState) session.flowState.retryCount = currentRetryCount + 1;
                         aiLoopReply = "Something went wrong. Please try again shortly.";
                     }
                 }
@@ -1210,19 +1471,19 @@ const createAIResponse = async (chatData) => {
                     flowTrainingData,
                     currentRetryCount,
                     profileName,
+                    userId,
+                    session.existingUserData?.flowId || existingAppointment?.flowId || null,
+                    async () => await clearUserSessionData(userPhone),
+                    resetUserInput
                 );
 
-                // ============================================================
-                // 🔥 INSERTED LOGIC: SAFE INTERCEPTOR
-                // ============================================================
+                // ...(Safe Interceptor)...
                 if (session.flowState?.overrideNextNodeId) {
-                    
                     const targetId = session.flowState.overrideNextNodeId;
                     const startId = session.flowState.startNodeId;
                     const currentId = generatedPrompt?.state?.currentNodeId;
 
                     if (currentId && currentId !== targetId && currentId !== startId) {
-                        
                         generatedPrompt.state.currentNodeId = targetId;
                         generatedPrompt.state.inputIndex = 0;
 
@@ -1231,21 +1492,24 @@ const createAIResponse = async (chatData) => {
 
                         generatedPrompt = await generateDynamicPrompt(
                             generatedPrompt.state,
-                            null, 
+                            null,
                             flowTrainingData,
                             0,
                             profileName,
+                            userId,
+                            session.existingUserData?.flowId || existingAppointment?.flowId || null,
+                            async () => await clearUserSessionData(userPhone),
+                            resetUserInput
                         );
                     }
                 }
 
                 while (!generatedPrompt.done && generatedPrompt.state) {
                     const { currentNodeId, inputIndex, collected } = generatedPrompt.state;
-                    
                     const node = flowTrainingData.nodes.find(n => n.id === currentNodeId);
                     const input = node?.data?.inputs?.[inputIndex || 0];
 
-                    if (!input) break; 
+                    if (!input) break;
 
                     const isSlot = input.type === 'Slot';
                     const fieldName = input.field || 'preference';
@@ -1258,9 +1522,13 @@ const createAIResponse = async (chatData) => {
                             flowTrainingData,
                             0,
                             profileName,
+                            userId,
+                            session.existingUserData?.flowId || existingAppointment?.flowId || null,
+                            async () => await clearUserSessionData(userPhone),
+                            resetUserInput
                         );
                     } else {
-                        break; 
+                        break;
                     }
                 }
 
@@ -1272,15 +1540,13 @@ const createAIResponse = async (chatData) => {
                 };
             }
 
-            // ==========================================================
-            // 🔥 SLOT LOCKING LOGIC
-            // ==========================================================
-            const HOLD_MINUTES = parseInt(process.env.HOLD_MINUTES) || 1;
+            // ... (Slot Locking Logic ) ...
+            const HOLD_MINUTES = parseInt(process.env.HOLD_MINUTES) || 3;
             const expirationThreshold = new Date(Date.now() - HOLD_MINUTES * 60 * 1000);
 
             if (userOption && userOption.startsWith('PRE-SUB_')) {
                 const parts = userOption.split('_');
-                const SlotId = parseInt(parts[5] || '0', 10);
+                const SlotId = parseInt(parts[3] || '0', 10); // Adjust index based on your split logic
 
                 try {
                     await Slots.findOneAndUpdate(
@@ -1295,7 +1561,7 @@ const createAIResponse = async (chatData) => {
                                 currentNode: generatedPrompt?.state?.nodeCount,
                                 SlotId,
                                 status: 'underProcess',
-                                updatedAt: new Date()
+                                updatedAt: new Date(),
                             },
                         },
                         { new: true, upsert: true, setDefaultsOnInsert: true }
@@ -1329,10 +1595,9 @@ const createAIResponse = async (chatData) => {
                             return { message: `😔 Sorry ${profileName}, that slot was just booked by someone else. Please select a different time.` };
                         }
                     } else {
-                        console.error("System Slot Error:", createError);
                         throw createError;
                     }
-                }
+                 }
             } else {
                 await Slots.findOneAndUpdate(
                     {
@@ -1352,8 +1617,6 @@ const createAIResponse = async (chatData) => {
                 });
             }
 
-            console.log(generatedPrompt,'iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii');
-
             session.flowState = generatedPrompt.state;
             userConversationHistories.set(userPhone, session);
             let aiResponse = generatedPrompt.reply;
@@ -1366,125 +1629,25 @@ const createAIResponse = async (chatData) => {
             const cleanAIResp = cleanAIResponse(aiResponse);
             const messageParts = cleanAIResp?.split(',')?.map(p => p.trim()).filter(Boolean) || [];
 
-            const slotRecordCount = await Slots.countDocuments({
-                flowId: session.existingUserData?.flowId || existingAppointment?.flowId || null,
-                user: userId,
-                currentNode: generatedPrompt?.state?.nodeCount ,
-                status: { $in: ['booked', 'underProcess'] }
-            });
-
-            console.log(slotRecordCount,'slotRecordCountslotRecordCount')
-
-            if (Array.isArray(options) && options?.length > 0) {
-                const [{ id: firstId, value: mainTitle, type }, ...rest] = options;
-                const bookedSlots = await Slots?.find({
-                    user: userId,
-                    flowId: session?.selectedFlowId,
-                    status: { $in: ['booked', 'underProcess'] }
-                });
-
-                const bookedSlotIds = bookedSlots.map(s => s.slot);
-                const availableOptions = rest.filter(({ id }) => !bookedSlotIds.includes(id));
-                if (!availableOptions?.length) {
+            if (Array.isArray(options) && options.length > 0) {
+                 const [{ value: mainTitle, type }, ...rest] = options;
+ 
+                if (!rest.length) {
                     await clearUserSessionData(userPhone);
                     resetUserInput();
                     return {
                         message: `😔 Sorry ${profileName}, all slots for this selection are fully booked. Please try choosing a different date or time.`
                     };
-                } else {
-                    const optionsData = {
-                        mainTitle,
-                        type: type.toLowerCase(),
-                        resp: availableOptions.map(({ id, value }) => ({ _id: id, title: value })),
-                    };
-
-                    return {
-                        optionsArray: optionsData,
-                        isQuestion: true
-                    };
                 }
+                return {
+                    optionsArray: {
+                        mainTitle,
+                        type: type?.toLowerCase(),
+                        resp: rest.map(({ id, value }) => ({ _id: id, title: value })),
+                    },
+                    isQuestion: true
+                };
             }
-
-
-
-            // if (Array.isArray(options) && options?.length > 0) {
-            //     const [{ id: firstId, value: mainTitle, type }, ...rest] = options;
-
-            //     // 2. Fetch all booked/processing slots from DB
-            //     // We need this list to check if the sub-slots are free
-            //     const bookedSlots = await Slots?.find({
-            //         user: userId,
-            //         flowId: session?.selectedFlowId, 
-            //         status: { $in: ['booked', 'underProcess'] }
-            //     });
-
-            //     const bookedSlotIds = bookedSlots.map(s => s.slot);
-
-            //     // 3. Filter Logic: Hide Common Slot if it is empty or fully booked
-            //     const availableOptions = rest.filter(({ id }) => {
-                    
-            //         // --- CASE A: It is a Common Slot (Time Range) ---
-            //         if (id && id.startsWith('PRE-S_')) {
-                        
-            //             // Step 1: Generate the hypothetical sub-slots for this range
-            //             // We use '0' as a default nodeCount since we are just checking availability
-            //             const potentialSubSlots = generateSubSlotOptions(id, 0);
-
-            //             // Step 2: Remove the "Select Specific Time" header
-            //             const validSubSlots = potentialSubSlots.filter(s => s.id !== 'HEADER_2');
-
-            //             // Step 3: If generation failed (empty array), HIDE this common slot
-            //             if (!validSubSlots || validSubSlots.length === 0) {
-            //                 return false; 
-            //             }
-
-            //             // Step 4: Check availability against the Database
-            //             // We want to count how many sub-slots are NOT booked
-            //             const availableSubSlotsCount = validSubSlots.filter(
-            //                 sub => !bookedSlotIds.includes(sub.id)
-            //             ).length;
-
-            //             // Step 5: Final Decision
-            //             // If available count is > 0, SHOW the Common Slot.
-            //             // If available count is 0, HIDE the Common Slot.
-            //             return availableSubSlotsCount > 0;
-            //         }
-
-            //         // --- CASE B: It is already a Sub Slot (Specific Time) ---
-            //         // Just check if this specific ID is booked
-            //         if (id && id.startsWith('PRE-SUB_')) {
-            //             return !bookedSlotIds.includes(id);
-            //         }
-
-            //         // --- CASE C: Standard Option (Text) ---
-            //         // Always show normal options
-            //         return true;
-            //     });
-
-            //     // 4. If NO options remain after filtering, reset user and show message
-            //     if (!availableOptions?.length) {
-                    
-            //         await clearUserSessionData(userPhone);
-            //         resetUserInput();
-
-            //         return {
-            //             message: `😔 Sorry ${profileName}, all slots for this selection are fully booked. Please try choosing a different date.`
-            //         };
-
-            //     } else {
-            //         // 5. Return the filtered list
-            //         const optionsData = {
-            //             mainTitle,
-            //             type: type.toLowerCase(),
-            //             resp: availableOptions.map(({ id, value }) => ({ _id: id, title: value })),
-            //         };
-
-            //         return {
-            //             optionsArray: optionsData,
-            //             isQuestion: true
-            //         };
-            //     }
-            // }
 
             if (!cleanAIResp) {
                 await clearUserSessionData(userPhone);
@@ -1501,14 +1664,9 @@ const createAIResponse = async (chatData) => {
                     const appointmentUid = new mongoose.Types.ObjectId();
                     const appointmentData = generatedPrompt.done && generatedPrompt.state && generatedPrompt.state.collected ? generatedPrompt.state.collected : '';
                     let firstUserCreated = userRespondTime;
+                    const finalRefId = existingAppointment?.refId || await generateRefID();
 
-                    if (
-                        !appointmentData ||
-                        (typeof appointmentData === 'string' && appointmentData.trim() === '') ||
-                        (Array.isArray(appointmentData) && appointmentData.length === 0) ||
-                        (typeof appointmentData === 'object' && !Array.isArray(appointmentData) && Object.keys(appointmentData).length === 0)
-                    ) {
-
+                    if (!appointmentData || (typeof appointmentData === 'string' && appointmentData.trim() === '') || (Array.isArray(appointmentData) && appointmentData.length === 0)) {
                         if (messageParts.length) {
                             return { message: messageParts, FlowId: session.selectedFlowId };
                         }
@@ -1537,9 +1695,37 @@ const createAIResponse = async (chatData) => {
                                 throw new Error('SLOT_EXPIRED');
                             }
 
+                            const slotDisplayString = bookedSlot.slot
+                                .replace('PRE-SUB_', '')
+                                .split('_')
+                                .slice(0, 3)
+                                .join(' ');
+
+                            await generateAndSendBookingSlip(userPhone, {
+                                refId: finalRefId,
+                                userId: userId,
+                                flowTitle: flowTrainingData?.title || "Appointment",
+                                slot: slotDisplayString || "Confirmed Time",
+                                data: appointmentData,
+                            });
+
+                            const googleEventId = await createBookingEvent(
+                                userId, 
+                                profileName,
+                                bookedSlot, 
+                                { title: flowTrainingData?.title || "Consultation" },
+                                finalRefId,
+                            );
+
+                            if (googleEventId) {
+                                await Slots.updateOne(
+                                    { _id: bookedSlot._id },
+                                    { $set: { googleEventId: googleEventId } },
+                                );
+                            }
+
                         } catch (err) {
                             if (err.message === 'SLOT_EXPIRED') {
-
                                 const alreadyBooked = await Slots.findOne({
                                     user: userId,
                                     flowId: session.selectedFlowId,
@@ -1556,12 +1742,13 @@ const createAIResponse = async (chatData) => {
                                     message: `⏳ Sorry ${profileName}, your booking session timed out. The slot is no longer reserved. Please try selecting a time again.`
                                 };
                             }
+                            console.error("Booking Error:", err); 
                         }
                     }
 
                     if (existingAppointment) {
-
                         firstUserCreated = existingAppointment?.userCreated || userRespondTime;
+
                         await createNotification({
                             userId,
                             type: "rescheduled",
@@ -1576,27 +1763,27 @@ const createAIResponse = async (chatData) => {
                             status: 'rescheduled',
                         });
                     } else {
-                        const firstAppointment = await AppointmentModal.findOne({
-                            whatsAppNumber: userPhone,
-                            user: userId
-                        }).sort({ createdAt: 1 }).lean();
-
-                        if (firstAppointment?.userCreated) {
-                            firstUserCreated = firstAppointment.userCreated;
-                        }
-                        await createNotification({
-                            userId,
-                            type: "booked",
-                            whatsAppNumber: userPhone,
-                            chatBotTitle: flowTrainingData?.title || "No name",
-                            profileName,
-                            appointmentId: appointmentUid,
-                        });
-                        sendToUser({
-                            userId,
-                            type: 'BOOKED_NOTIFICATION',
-                            status: 'booked',
-                        });
+                            const firstAppointment = await AppointmentModal.findOne({
+                                whatsAppNumber: userPhone,
+                                user: userId
+                            }).sort({ createdAt: 1 }).lean();
+    
+                            if (firstAppointment?.userCreated) {
+                                firstUserCreated = firstAppointment.userCreated;
+                            }
+                            await createNotification({
+                                userId,
+                                type: "booked",
+                                whatsAppNumber: userPhone,
+                                chatBotTitle: flowTrainingData?.title || "No name",
+                                profileName,
+                                appointmentId: appointmentUid,
+                            });
+                            sendToUser({
+                                userId,
+                                type: 'BOOKED_NOTIFICATION',
+                                status: 'booked',
+                            });
                     }
 
                     const rescheduleCount = existingAppointment?.__v || 0;
@@ -1606,12 +1793,18 @@ const createAIResponse = async (chatData) => {
                             currentScores,
                         ]
                         : [currentScores];
+                    
+                    // Fetch the slot to get googleEventId (if it was just created)
+                    const finalSlotData = await Slots.findOne({
+                        user: userId,
+                        whatsappNumber: userPhone,
+                        flowId: session.selectedFlowId,
+                        status: 'booked'
+                    });
 
+                    //...(SAVE APPOINTMENT (With Google Event ID))...
                     const userRef = await User.findOneAndUpdate(
-                        {
-                            whatsAppNumber: userPhone,
-                            user: userId
-                        },
+                        { whatsAppNumber: userPhone, user: userId },
                         {
                             $setOnInsert: {
                                 source: "whatsapp",
@@ -1633,17 +1826,11 @@ const createAIResponse = async (chatData) => {
                                 sentimentScoresHistory: { $each: [currentScores], $position: 0 }
                             }
                         },
-                        {
-                            new: true,
-                            upsert: true,
-                            setDefaultsOnInsert: true,
-                        }
+                        { new: true, upsert: true, setDefaultsOnInsert: true, }
                     );
 
                     await AppointmentModal.findOneAndUpdate(
-                        {
-                            _id: existingAppointment?._id || appointmentUid,
-                        },
+                        { _id: existingAppointment?._id || appointmentUid },
                         {
                             $setOnInsert: {
                                 whatsAppUser: userRef?._id,
@@ -1653,17 +1840,19 @@ const createAIResponse = async (chatData) => {
                                 whatsAppNumber: userPhone,
                                 profileName,
                                 userCreated: firstUserCreated,
+                                refId: finalRefId,
                             },
                             $set: {
                                 data: appointmentData || {},
                                 hasSlots: generatedPrompt?.state?.isActiveSlots || false,
                                 currentNode: generatedPrompt?.state?.nodeCount || null,
-                                history,
+                                history: parseChatHistory(session.conversation),
                                 rescheduleCount,
                                 status: existingAppointment ? "rescheduled" : "booked",
                                 sentimentScores: averageSentimentScoresSafe(sentimentHistory),
                                 lastActiveAt: userRespondTime,
                                 lastUpdatedAt: new Date().toISOString(),
+                                googleEventId: finalSlotData?.googleEventId || existingAppointment?.googleEventId 
                             },
                             $inc: { __v: 1 },
                             $push: {
@@ -1703,5 +1892,6 @@ const createAIResponse = async (chatData) => {
 };
 
 module.exports = createAIResponse;
+
 
 

@@ -48,6 +48,8 @@ const AppointmentSchema = new Schema(
         },
         hasSlots: Boolean,
         currentNode:Number,
+        refId:String,
+        googleEventId: String,
         history: {
             type: [MessageSchema],
             required: true,

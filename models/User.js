@@ -90,6 +90,13 @@ const userSchema = new Schema({
   linkedin: String,
   instagram: String,
   taxId: String,
+  autoSendBookingPdf: Boolean,
+  botName: String,
+  generalWelcomeMessage: String,
+  inactivityTimeoutMinutes: Number,
+  language: String,
+  monthlyTarget: Number,
+  timezone: String,
   role: { 
     type: String, 
     enum: ['user', 'admin', 'superadmin'], 
