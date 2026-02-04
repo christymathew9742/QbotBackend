@@ -38,7 +38,7 @@ const getBrowser = async () => {
     return browserInstance;
 };
 
-const formatSlotDisplay = (rawString) => {
+const formatSlotDisplay = (rawString, timezone = 'UTC', language = 'en-US') => {
     try {
         if (!rawString) return "Not Scheduled";
 
@@ -51,11 +51,12 @@ const formatSlotDisplay = (rawString) => {
 
         if (timestampStr) {
             const date = new Date(parseInt(timestampStr));
-            dateStr = date.toLocaleDateString('en-US', { 
-                weekday: 'short', 
-                month: 'short', 
-                day: 'numeric' 
-            });
+            dateStr = new Intl.DateTimeFormat(language, {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                timeZone: timezone
+            }).format(date);
         }
 
         if (times.length > 0) {
@@ -132,8 +133,18 @@ const uploadAndSendPDF = async (userPhone, botUser, pdfBuffer, fileName) => {
 };
 
 const generateBookingHTML = (details) => {
-    const { refId, date, department, slotTime, extraData } = details;
-    const formattedSlot = formatSlotDisplay(slotTime);
+    const { 
+        refId, 
+        date, 
+        department, 
+        slotTime, 
+        extraData, 
+        businessProfile, 
+        timezone, 
+        language 
+    } = details;
+    
+    const formattedSlot = formatSlotDisplay(slotTime, timezone, language);
     const primaryColor = "#493e81";
     const lightText = "#6b7280";
     const darkText = "#1f2937";
@@ -196,8 +207,20 @@ const generateBookingHTML = (details) => {
             <meta charset="UTF-8">
             <style>
                 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-                body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background-color: white; color: ${darkText}; -webkit-print-color-adjust: exact; }
-                .page-container { width: 100%; background: white; position: relative; overflow: hidden; }
+                @page { margin: 0; size: auto; }
+                *, *::before, *::after { box-sizing: border-box; }
+                html, body { margin: 0; padding: 0; overflow: hidden; height: auto; background-color: white; }
+                body { font-family: 'Inter', sans-serif; color: ${darkText}; -webkit-print-color-adjust: exact; }
+                
+                .page-container { 
+                    width: 100%; 
+                    background: white; 
+                    position: relative; 
+                    overflow: hidden;
+                    display: block;
+                    padding-bottom: 2px;
+                }
+                
                 .header { background-color: ${primaryColor}; color: white; padding: 40px 50px; display: flex; justify-content: space-between; align-items: flex-start; }
                 .brand h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
                 .brand p { margin: 5px 0 0; font-size: 14px; opacity: 0.9; font-weight: 400; }
@@ -221,10 +244,10 @@ const generateBookingHTML = (details) => {
             </style>
         </head>
         <body>
-            <div class="page-container">
+            <div class="page-container" id="main-container">
                 <div class="header">
                     <div class="brand">
-                        <h1>Appointment Slip</h1>
+                        <h1>${businessProfile}</h1>
                         <p>Confirmed Booking Receipt</p>
                     </div>
                     <div class="status-box">
@@ -292,12 +315,24 @@ const generateAndSendBookingSlip = async (userPhone, bookingDetails) => {
             return false;
         }
 
+        const targetTz = bookingDetails?.timezone || 'UTC';
+        const targetLang = bookingDetails?.language || 'en-US';
+        const dateGenerated = new Intl.DateTimeFormat(targetLang, {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            timeZone: targetTz
+        }).format(new Date());
+
         const htmlContent = generateBookingHTML({
             refId: bookingDetails?.refId,
-            date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+            date: dateGenerated, 
             department: bookingDetails?.flowTitle, 
             slotTime: bookingDetails?.slot,
-            extraData: bookingDetails?.data || {}
+            extraData: bookingDetails?.data || {},
+            businessProfile: bookingDetails?.businessProfile,
+            language: targetLang,
+            timezone: targetTz,
         });
 
         const browser = await getBrowser();
@@ -305,22 +340,22 @@ const generateAndSendBookingSlip = async (userPhone, bookingDetails) => {
         
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
         
-        const bodyHeight = await page.evaluate(() => {
-            return document.body.scrollHeight;
+        const contentHeight = await page.evaluate(() => {
+            const container = document.getElementById('main-container');
+            return container ? container.offsetHeight : document.body.scrollHeight;
         });
 
         const pdfBuffer = await page.pdf({ 
             width: '210mm',
-            height: `${bodyHeight + 1}px`,
+            height: `${contentHeight}px`,
             printBackground: true,
+            pageRanges: '1',
             margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' }
         });
 
         const fileName = `Appointment_${Date.now()}.pdf`;
 
         await uploadAndSendPDF(userPhone, botUser, pdfBuffer, fileName);
-        
-        console.log(`✅ Booking Slip sent successfully to ${userPhone}`);
         return true;
 
     } catch (error) {
@@ -328,7 +363,7 @@ const generateAndSendBookingSlip = async (userPhone, bookingDetails) => {
         return false;
     } finally {
         if (page) {
-            try { await page.close(); } catch(e) { /* ignore page close error */ }
+            try { await page.close(); } catch(e) { }
         }
     }
 };

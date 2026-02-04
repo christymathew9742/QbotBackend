@@ -260,6 +260,12 @@ const buildUserData = (phone, message="", input="", option="", botUser, ts="") =
     userOption: option,
     userId: botUser._id,
     whatsTimestamp: ts,
+    autoSendBookingPdf: botUser?.autoSendBookingPdf || false,
+    generalWelcomeMessage: botUser?.generalWelcomeMessage || '',
+    businessProfile: botUser?.botName || '',
+    inactivityTimeoutMinutes: botUser?.inactivityTimeoutMinutes || 3,
+    language: botUser?.language || 'English (UK)',
+    timezone: botUser?.timezone || 'Asia/Kolkata',
 });
 
 const validateToken = (user, secretKey) => {
