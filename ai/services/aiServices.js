@@ -701,7 +701,7 @@ console.log(chatData, 'chatDatachatDatachatDatachatData');
                     const appointmentData = generatedPrompt.done && generatedPrompt.state && generatedPrompt.state.collected ? generatedPrompt.state.collected : '';
                     let firstUserCreated = userRespondTime;
                     const finalRefId = existingAppointment?.refId || await generateRefID();
-console.log(appointmentData, 'appointmentDataappointmentDataappointmentData');
+
                     if (!appointmentData || (typeof appointmentData === 'string' && appointmentData.trim() === '') || (Array.isArray(appointmentData) && appointmentData.length === 0)) {
                         if (messageParts.length) {
                             return { message: messageParts, FlowId: session.selectedFlowId };
