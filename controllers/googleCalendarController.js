@@ -17,14 +17,18 @@ exports.calendarCallback = async (req, res) => {
     const userId = state;
 
     if (!code || !userId) {
-        return res.status(400).send("Invalid request: Missing code or state");
+      return res.status(400).send("Invalid request: Missing code or state");
     }
 
     await googleCalendarService.saveTokens(code, userId);
 
-    res.redirect("http://localhost:3001/general-settings?tab=0&status=connected"); 
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3001";
+
+    res.redirect(`${FRONTEND_URL}/general-settings?tab=0&status=connected`);
   } catch (err) {
-    res.redirect(`http://localhost:3001/general-settings?tab=0&status=disconnected`);
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3001";
+
+    res.redirect(`${FRONTEND_URL}/general-settings?tab=0&status=disconnected`);
   }
 };
 
