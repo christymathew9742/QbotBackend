@@ -24,11 +24,11 @@ exports.calendarCallback = async (req, res) => {
 
     const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3001";
 
-    res.redirect(`${FRONTEND_URL}/general-settings?tab=0&status=connected`);
+    res.redirect(`https://qbot-assistant.vercel.app/general-settings?tab=0&status=connected`);
   } catch (err) {
     const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3001";
 
-    res.redirect(`${FRONTEND_URL}/general-settings?tab=0&status=disconnected`);
+    res.redirect(`https://qbot-assistant.vercel.app/general-settings?tab=0&status=disconnected`);
   }
 };
 
