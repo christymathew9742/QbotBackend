@@ -1,3 +1,4 @@
+const { type } = require('microsoft-cognitiveservices-speech-sdk/distrib/lib/src/common.speech/SpeechServiceConfig');
 const mongoose = require('mongoose');
 const { Schema, model, Types } = mongoose;
 
@@ -45,6 +46,10 @@ const AppointmentSchema = new Schema(
             of: Schema.Types.Mixed,
             required: true,
         },
+        hasSlots: Boolean,
+        currentNode:Number,
+        refId:String,
+        googleEventId: String,
         history: {
             type: [MessageSchema],
             required: true,

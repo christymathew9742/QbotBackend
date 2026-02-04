@@ -2,58 +2,103 @@ const  AppointmentModal = require('../models/AppointmentModal');
 const { errorResponse } = require('../utils/errorResponse');
 
 // get all appointment
+const getDayRangeInUTC = (dateStr, timeZone) => {
+    const startOfDay = new Date(dateStr);
+    startOfDay.setUTCHours(0,0,0,0);
+    
+    const getOffsetMinutes = (d, tz) => {
+        const utcDate = new Date(d.toLocaleString('en-US', { timeZone: 'UTC' }));
+        const tzDate = new Date(d.toLocaleString('en-US', { timeZone: tz }));
+        return (tzDate.getTime() - utcDate.getTime()) / 60000;
+    };
+
+    const offsetMinutes = getOffsetMinutes(startOfDay, timeZone);
+    startOfDay.setMinutes(startOfDay.getMinutes() - offsetMinutes);
+    const endOfDay = new Date(startOfDay);
+    endOfDay.setDate(endOfDay.getDate() + 1);
+    return { start: startOfDay, end: endOfDay };
+};
+
 const getAllAppointments = async (
     userId,
     page = 1,
     limit = 6,
     search = '',
     status = null,
-    date = null
+    date = null,
+    userTimeZone = 'Asia/Kolkata'
 ) => {
     try {
-        // ---------- FILTERS ----------
         const filter = { user: userId };
-    
+        const andConditions = [];
+
         if (search?.trim()) {
-            filter.$or = [
-                { flowTitle: { $regex: search, $options: 'i' } },
-                { whatsAppNumber: { $regex: search, $options: 'i' } },
-                { profileName: { $regex: search, $options: 'i' } }
-            ];
+            andConditions.push({
+                $or: [
+                    { flowTitle: { $regex: search, $options: 'i' } },
+                    { whatsAppNumber: { $regex: search, $options: 'i' } },
+                    { profileName: { $regex: search, $options: 'i' } }
+                ]
+            });
         }
-  
+
         if (status && status !== 'null') {
-                filter.status = status;
+            filter.status = status;
         }
-    
+
         if (date && date !== 'null') {
-                const selectedDate = new Date(date);
-                const nextDate = new Date(selectedDate);
-                nextDate.setDate(selectedDate.getDate() + 1);
-        
-                filter.createdAt = { $gte: selectedDate, $lt: nextDate };
+            const selectedDate = new Date(date);
+
+            if (!isNaN(selectedDate.getTime())) {
+                const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                const month = monthNames[selectedDate.getUTCMonth()];
+                const day = selectedDate.getUTCDate();
+                const dayPart = day < 10 ? `0?${day}` : day;
+                const datePattern = `^${month}\\s*${dayPart}(?!\\d)`; 
+                const { start: startUTC, end: endUTC } = getDayRangeInUTC(date, userTimeZone);
+                andConditions.push({
+                    $or: [
+                        { 'data.Select Specific Time': { $regex: datePattern, $options: 'i' } },
+                        {
+                            $and: [
+                                {
+                                    $or: [
+                                        { 'data.Select Specific Time': { $exists: false } },
+                                        { 'data.Select Specific Time': null },
+                                        { 'data.Select Specific Time': "" }
+                                    ]
+                                },
+                                { createdAt: { $gte: startUTC, $lt: endUTC } }
+                            ]
+                        }
+                    ]
+                });
+            }
         }
+
+        if (andConditions.length > 0) {
+            filter.$and = andConditions;
+        }
+
         const skip = (page - 1) * limit;
-  
-        // ---------- MAIN QUERY ----------
+
         const [appointments, total] = await Promise.all([
             AppointmentModal.find(filter)
-            .sort({ lastUpdatedAt: -1 })
-            .skip(skip)
-            .limit(Number(limit))
-            .lean(),
-    
+                .sort({ lastUpdatedAt: -1 })
+                .skip(skip)
+                .limit(Number(limit))
+                .lean(),
+
             AppointmentModal.countDocuments(filter)
         ]);
-    
-        // ---------- RETURN ----------
+
         return {
             data: appointments,
             totalBookings: total,
             page: Number(page),
             pages: Math.ceil(total / limit)
         };
-    
+
     } catch (error) {
         throw new Error(`Error fetching appointments: ${error.message}`);
     }

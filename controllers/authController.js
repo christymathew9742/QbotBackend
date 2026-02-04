@@ -178,7 +178,7 @@ const updateUser = async (req, res, next) => {
         [
             'displayname', 'username', 'email', 'phone', 'bio', 'profilepic', 'country', 'state',
             'postalcode', 'taxId', 'accesstoken', 'facebook', 'twitter', 'linkedin',
-            'instagram', 'phonenumberid','status',
+            'instagram', 'phonenumberid','status', 'autoSendBookingPdf', 'botName', 'generalWelcomeMessage', 'inactivityTimeoutMinutes', 'language', 'monthlyTarget', 'timezone',
         ].forEach(field => {
             if (req.body[field] !== undefined) updateFields[field] = req.body[field];
         });
