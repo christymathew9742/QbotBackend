@@ -5,9 +5,8 @@ const path = require('path');
 const mime = require("mime-types");
 let storage;
 
-if (process.env.NODE_ENV === 'production') {
+if (process.env.NODE_ENV) {
   storage = new Storage({
-    keyFilename: '/secrets/key.json', 
     projectId: process.env.GCS_PROJECT_ID,
   });
 } else if (process.env.GCS_CREDENTIALS) {

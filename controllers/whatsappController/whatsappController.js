@@ -17,9 +17,8 @@ const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME;
 const ENABLE_STT = process.env.ENABLE_STT === true || false; 
 
 const getGcpConfig = () => {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV) {
         return {
-            keyFilename: '/secrets/key.json',
             projectId: process.env.GCS_PROJECT_ID,
         };
     } else if (process.env.GCS_CREDENTIALS) {
