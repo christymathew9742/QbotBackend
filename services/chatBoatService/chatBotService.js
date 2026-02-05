@@ -3,22 +3,24 @@ const { errorResponse } = require('../../utils/errorResponse');
 const { Storage } = require("@google-cloud/storage");
 const path = require('path');
 const mime = require("mime-types");
-let storage;
+const storage = new Storage({
+    projectId: process.env.GCS_PROJECT_ID,
+});
 
-if (process.env.NODE_ENV) {
-  storage = new Storage({
-    projectId: process.env.GCS_PROJECT_ID,
-  });
-} else if (process.env.GCS_CREDENTIALS) {
-  storage = new Storage({
-    credentials: JSON.parse(process.env.GCS_CREDENTIALS),
-    projectId: process.env.GCS_PROJECT_ID,
-  });
-} else {
-  storage = new Storage({
-    keyFilename: path.join(process.cwd(), 'gcs-key.json'),
-  });
-}
+// if (process.env.NODE_ENV) {
+//   storage = new Storage({
+//     projectId: process.env.GCS_PROJECT_ID,
+//   });
+// } else if (process.env.GCS_CREDENTIALS) {
+//   storage = new Storage({
+//     credentials: JSON.parse(process.env.GCS_CREDENTIALS),
+//     projectId: process.env.GCS_PROJECT_ID,
+//   });
+// } else {
+//   storage = new Storage({
+//     keyFilename: path.join(process.cwd(), 'gcs-key.json'),
+//   });
+// }
 
 const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 const ffmpeg = require("fluent-ffmpeg");
