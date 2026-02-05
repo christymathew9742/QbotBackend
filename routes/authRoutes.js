@@ -23,9 +23,8 @@ const authMiddleware = require('../middlewares/authMiddleware');
 const userMiddleware = require('../middlewares/userMiddleware');
 let storage;
 
-if (process.env.NODE_ENV === 'production') {
-  storage = new Storage({
-    keyFilename: '/secrets/key.json', 
+if (process.env.NODE_ENV) {
+   storage = new Storage({
     projectId: process.env.GCS_PROJECT_ID,
   });
 } else if (process.env.GCS_CREDENTIALS) {
