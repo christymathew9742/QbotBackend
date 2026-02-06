@@ -7,21 +7,6 @@ const storage = new Storage({
     projectId: process.env.GCS_PROJECT_ID,
 });
 
-// if (process.env.NODE_ENV) {
-//   storage = new Storage({
-//     projectId: process.env.GCS_PROJECT_ID,
-//   });
-// } else if (process.env.GCS_CREDENTIALS) {
-//   storage = new Storage({
-//     credentials: JSON.parse(process.env.GCS_CREDENTIALS),
-//     projectId: process.env.GCS_PROJECT_ID,
-//   });
-// } else {
-//   storage = new Storage({
-//     keyFilename: path.join(process.cwd(), 'gcs-key.json'),
-//   });
-// }
-
 const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 const ffmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
@@ -38,7 +23,6 @@ const LIMITS = {
     AUDIO_MB: parseFloat(process.env.AUD_LIMIT_MB) || 10,
     DOC_MB: parseFloat(process.env.DOC_LIMIT_MB) || 10,
 };
-
 
 // Creating a new ChatBot with unique title validation
 const createChatBot = async (chatBotData) => {

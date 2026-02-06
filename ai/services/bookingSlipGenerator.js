@@ -15,6 +15,7 @@ const getBrowser = async () => {
         console.log("🚀 Launching new browser instance...");
         try {
             browserInstance = await puppeteer.launch({ 
+                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
                 args: [
                     '--no-sandbox', 
                     '--disable-setuid-sandbox',
