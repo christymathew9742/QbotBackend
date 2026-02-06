@@ -16,23 +16,6 @@ const speech = require('@google-cloud/speech');
 const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME;
 const ENABLE_STT = process.env.ENABLE_STT === true || false; 
 
-// const getGcpConfig = () => {
-//     if (process.env.NODE_ENV) {
-//         return {
-//             projectId: process.env.GCS_PROJECT_ID,
-//         };
-//     } else if (process.env.GCS_CREDENTIALS) {
-//         return {
-//             credentials: JSON.parse(process.env.GCS_CREDENTIALS),
-//             projectId: process.env.GCS_PROJECT_ID,
-//         };
-//     } else {
-//         return {
-//             keyFilename: path.join(process.cwd(), 'gcs-key.json'),
-//         };
-//     }
-// };
-
 const getGcpConfig = () => {
     return {
         projectId: process.env.GCS_PROJECT_ID,

@@ -21,26 +21,10 @@ const {
 
 const authMiddleware = require('../middlewares/authMiddleware');
 const userMiddleware = require('../middlewares/userMiddleware');
-// let storage;
 
 const storage = new Storage({
   projectId: process.env.GCS_PROJECT_ID,
 });
-
-// if (process.env.NODE_ENV) {
-//    storage = new Storage({
-//     projectId: process.env.GCS_PROJECT_ID,
-//   });
-// } else if (process.env.GCS_CREDENTIALS) {
-//   storage = new Storage({
-//     credentials: JSON.parse(process.env.GCS_CREDENTIALS),
-//     projectId: process.env.GCS_PROJECT_ID,
-//   });
-// } else {
-//   storage = new Storage({
-//     keyFilename: path.join(process.cwd(), 'gcs-key.json'),
-//   });
-// }
 
 const bucketName = process.env.GCS_BUCKET_NAME;
 const bucket = storage.bucket(bucketName);
