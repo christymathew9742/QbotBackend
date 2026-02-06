@@ -154,7 +154,7 @@ console.log(chatData, 'chatDatachatDatachatDatachatData');
                 return { message: '🙁🛑 Error checking your appointment. Please try again.' };
             }
 
-            const messagePrefix = `Hi ${existingAppointment?.data?.name || profileName || 'there'}`
+            const messagePrefix = `Hi ${existingAppointment?.data?.name || existingAppointment?.data?.Name || profileName || 'there'}`
 
             session = session || {
                 conversation: [],

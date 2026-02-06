@@ -54,6 +54,8 @@
     "node-cache": "^5.1.2",
     "nodemailer": "^7.0.5",
     "openai": "^4.72.0",
+    "pdfkit": "^0.17.2",
+    "pdfkit-table": "^0.1.99",
     "puppeteer": "^24.35.0",
     "redis": "^4.7.0",
     "sentiment": "^5.0.2",
