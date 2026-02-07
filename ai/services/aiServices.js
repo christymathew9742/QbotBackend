@@ -103,8 +103,7 @@ const createAIResponse = async (chatData) => {
         language,
         timezone,
     } = chatData;
-console.log(chatData, 'chatDatachatDatachatDatachatData');
-    //Remove expired slots before processing
+
     await cleanupExpiredSlots(); 
 
     const mutex = getUserMutex(userPhone);
@@ -888,6 +887,7 @@ console.log(chatData, 'chatDatachatDatachatDatachatData');
                             },
                             $set: {
                                 data: appointmentData || {},
+                                timezone,
                                 hasSlots: generatedPrompt?.state?.isActiveSlots || false,
                                 currentNode: generatedPrompt?.state?.nodeCount || null,
                                 history: parseChatHistory(session.conversation),
