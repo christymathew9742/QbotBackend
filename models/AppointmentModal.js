@@ -46,6 +46,7 @@ const AppointmentSchema = new Schema(
             of: Schema.Types.Mixed,
             required: true,
         },
+        timezone: String,
         hasSlots: Boolean,
         currentNode:Number,
         refId:String,
