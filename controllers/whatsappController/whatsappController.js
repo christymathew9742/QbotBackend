@@ -16,6 +16,12 @@ const speech = require('@google-cloud/speech');
 const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME;
 const ENABLE_STT = process.env.ENABLE_STT === true || false; 
 
+const BATCH_TIMER_MS = 5000;
+const MAX_BATCH_SIZE = 10;
+const COOLDOWN_PERIOD_MS = 30000;
+
+const timeoutPromise = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), ms));
+
 const getGcpConfig = () => {
     return {
         projectId: process.env.GCS_PROJECT_ID,
@@ -147,7 +153,8 @@ const processBackgroundMessage = async (whatsapData, message, userPhone) => {
 
         case 'image':
         case 'video':
-        case 'document': {
+        case 'document':
+        case 'audio': {
             await handleMediaBatch(type, whatsapData, userPhone, message, botUser);
             break;
         }
@@ -169,75 +176,134 @@ const processBackgroundMessage = async (whatsapData, message, userPhone) => {
     }
 };
 
-const handleMediaBatch = async (type, whatsapData, userPhone, message, botUser) => {
+const handleMediaBatch = (type, whatsapData, userPhone, message, botUser) => {
     const mediaId = whatsapData?.[type]?.id;
     const caption = whatsapData?.[type]?.caption || '';
+    
     if (!mediaId) return;
 
-    if (!mediaGroupCache.has(userPhone)) mediaGroupCache.set(userPhone, []);
-    if (!mediaGroupCache.has(`${userPhone}_promises`)) mediaGroupCache.set(`${userPhone}_promises`, []);
-    if (!mediaGroupCache.has(`${userPhone}_firstTime`)) mediaGroupCache.set(`${userPhone}_firstTime`, Date.now());
-    
-    if (mediaGroupCache.get(`${userPhone}_finalized`)) return;
-
-    const downloadTask = async () => {
-        try {
-            const mediaNames = await getMediaName(mediaId, botUser.accesstoken);
-            const current = mediaGroupCache.get(userPhone) || [];
-            mediaGroupCache.set(userPhone, [...current, ...mediaNames.filter(Boolean)]);
-        } catch (e) { console.error("Media DL failed", e.message); }
-    };
-
-    const promises = mediaGroupCache.get(`${userPhone}_promises`);
-    promises.push(downloadTask());
-    mediaGroupCache.set(`${userPhone}_promises`, promises);
-
-    const existingTimer = mediaGroupCache.get(`${userPhone}_idleTimer`);
-    if (existingTimer) clearTimeout(existingTimer);
-
-    const elapsed = Date.now() - mediaGroupCache.get(`${userPhone}_firstTime`);
-    if (elapsed >= 120000) {
-        await sendSingleMessage(userPhone, botUser, `Processing what I have so far...`);
-        await finalizeBatch(userPhone, caption, botUser, message);
-        return;
+    if (mediaGroupCache.get(`${userPhone}_COOLDOWN`)) {
+        console.log(`[${userPhone}] Ignored message (Cooldown Active)`);
+        return; 
     }
 
-    const newTimer = setTimeout(async () => {
-        await finalizeBatch(userPhone, caption, botUser, message);
-    }, 15000);
+    let currentBatch = mediaGroupCache.get(userPhone) || { items: [], captions: [] };
 
-    mediaGroupCache.set(`${userPhone}_idleTimer`, newTimer);
+    if (currentBatch.items.length >= MAX_BATCH_SIZE) {
+
+    } else {
+        const exists = currentBatch.items.some(m => m.id === mediaId);
+        if (!exists) {
+            currentBatch.items.push({ id: mediaId, type: type });
+            if (caption) currentBatch.captions.push(caption);
+            mediaGroupCache.set(userPhone, currentBatch);
+        }
+    }
+    const existingTimer = mediaGroupCache.get(`${userPhone}_timer`);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    const newTimer = setTimeout(() => {
+        finalizeBatch(userPhone, botUser, message);
+    }, BATCH_TIMER_MS);
+
+    mediaGroupCache.set(`${userPhone}_timer`, newTimer);
 };
 
-const finalizeBatch = async (userPhone, caption, botUser, message) => {
-    if (mediaGroupCache.get(`${userPhone}_finalized`)) return;
-    mediaGroupCache.set(`${userPhone}_finalized`, true);
+const finalizeBatch = async (userPhone, botUser, message) => {
+    if (mediaGroupCache.get(`${userPhone}_processing`)) return;
+    
+    const batchData = mediaGroupCache.get(userPhone);
+    if (!batchData || batchData.items.length === 0) return;
+
+    mediaGroupCache.set(`${userPhone}_processing`, true);
+    mediaGroupCache.set(`${userPhone}_COOLDOWN`, true); 
+
+    if (mediaGroupCache.get(`${userPhone}_timer`)) clearTimeout(mediaGroupCache.get(`${userPhone}_timer`));
+
+    const totalItems = batchData.items.length;
+    const hasHeavyMedia = batchData.items.some(i => ['video', 'audio', 'document'].includes(i.type));
 
     try {
-        await Promise.all(mediaGroupCache.get(`${userPhone}_promises`) || []);
-        const allMedia = mediaGroupCache.get(userPhone) || [];
 
-        if (allMedia?.length > 0) {
-            if (allMedia?.length > 5) {
-                await sendSingleMessage(userPhone, botUser, `Received ${allMedia.length} files. Analyzing...`);
+        const msgTimestamp = parseInt(message?.messages?.[0]?.timestamp || (Date.now() / 1000));
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        const latency = currentTimestamp - msgTimestamp;
+
+        if (latency > 60) {
+            console.log(`[${userPhone}] High Latency Detected: ${latency}s`);
+        }
+
+        if (totalItems > 1 || hasHeavyMedia) {
+             await sendSingleMessage(userPhone, botUser, `Hi Received ${totalItems} file(s). ⏳ Processing...`);
+        }
+
+        const MAX_DOWNLOAD_TIME = 45000; 
+        const downloadPromises = batchData.items.map(async (item) => {
+            try {
+                return await Promise.race([
+                    getMediaName(item.id, botUser.accesstoken),
+                    timeoutPromise(MAX_DOWNLOAD_TIME) 
+                ]);
+            } catch (err) {
+                if (err.message === 'Timeout') {
+                    console.error(`[${userPhone}] File ${item.id} Timed Out.`);
+                    return 'TIMEOUT_ERROR';
+                }
+                console.error(`[${userPhone}] Download Fail:`, err.message);
+                return null; 
             }
+        });
+
+        const results = await Promise.all(downloadPromises);
+        const validFileNames = results.flat().filter(r => r && r !== 'TIMEOUT_ERROR');
+        const timeoutCount = results.filter(r => r === 'TIMEOUT_ERROR').length;
+
+        if (validFileNames.length === 0 && timeoutCount > 0) {
+            await sendSingleMessage(userPhone, botUser, 
+                "Hi We are facing some network delays receiving your media. Please check your connection and try sending it again."
+            );
+            return;
+        }
+
+        if (timeoutCount > 0 && validFileNames.length > 0) {
+             await sendSingleMessage(userPhone, botUser, 
+                `Hi I downloaded ${validFileNames.length} files, but ${timeoutCount} file(s) couldn't be retrieved due to network issues. Processing the available ones...`
+            );
+        }
+
+        if (validFileNames.length > 0) {
+            const combinedCaption = batchData.captions.join(" ");
+            const fileListString = validFileNames.join(",");
+
+            const userData = buildUserData(
+                userPhone, 
+                message, 
+                fileListString, 
+                '', 
+                botUser, 
+                message?.messages?.[0]?.timestamp
+            );
             
-            const userInput = allMedia.join(",") || caption || "media";
-            const userData = buildUserData(userPhone, message, userInput, '', botUser, message?.messages?.[0]?.timestamp);
-            
+            if (combinedCaption) userData.userInput += ` ${combinedCaption}`;
+
             const aiResponse = await handleConversation(userData);
             if (aiResponse?.resp) {
                 await sendMessageToWhatsApp(userPhone, aiResponse, botUser, message);
             }
+        }  else if (timeoutCount === 0 && validFileNames.length === 0) {
+             await sendSingleMessage(userPhone, botUser, "Hi Unable to access the media files. Please try again.");
         }
+
     } catch (err) {
-        console.error('Batch Error:', err);
+        console.error(`[${userPhone}] Batch Error:`, err.message);
     } finally {
-        mediaGroupCache.del(`${userPhone}_promises`);
-        mediaGroupCache.del(`${userPhone}_idleTimer`);
         mediaGroupCache.del(userPhone);
-        mediaGroupCache.del(`${userPhone}_firstTime`);
-        mediaGroupCache.del(`${userPhone}_finalized`);
+        mediaGroupCache.del(`${userPhone}_timer`);
+        mediaGroupCache.del(`${userPhone}_processing`);
+
+        setTimeout(() => {
+            mediaGroupCache.del(`${userPhone}_COOLDOWN`);
+        }, COOLDOWN_PERIOD_MS);
     }
 };
 

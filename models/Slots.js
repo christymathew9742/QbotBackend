@@ -15,6 +15,7 @@ const SlotsSchema = new Schema(
         currentNode: Number,
         SlotId: Number,
         googleEventId: String,
+        googleCalendarId: { type: String },
         whatsappNumber: {
             type: String,
             required: true,
