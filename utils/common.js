@@ -7,7 +7,9 @@ const mongoose = require("mongoose");
 const { ChatBotModel } = require('../models/chatBotModel/chatBotModel');
 const { customAlphabet } = require('nanoid');
 const generateId = customAlphabet('BCDFGHJKMNPQRSTVWXYZ23456789', 6); 
-
+const axios = require('axios');
+const User = require('../models/User');
+const { baseUrl } = require('../config/whatsappConfig');
 
 function cleanAIResponse(response) {
     if (typeof response !== 'string' || !response.trim()) return '';
@@ -516,6 +518,53 @@ const generateRefID = async () => {
     return `NM00${generateId()}`; 
 };
 
+const sendWhatsAppNotification = async (to, messageBody, userId) => {
+    try {
+        // 1. Validate basic inputs
+        if (!to || !messageBody || !userId) {
+            console.error("❌ Missing parameters: 'to', 'messageBody', or 'userId'");
+            return false;
+        }
+
+        // 2. Fetch credentials from DB
+        const botUser = await User.findById(userId).select('accesstoken phonenumberid');
+
+        if (!botUser || !botUser.accesstoken || !botUser.phonenumberid) {
+            console.error(`❌ Credentials not found for User ID: ${userId}`);
+            return false;
+        }
+
+        // 3. Prepare the request
+        const url = `${baseUrl}/${botUser.phonenumberid}/messages`;
+        
+        const data = {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: to,
+            type: "text",
+            text: { body: messageBody }
+        };
+
+        const config = {
+            headers: { 
+                Authorization: `Bearer ${botUser.accesstoken}`,
+                'Content-Type': 'application/json'
+            }
+        };
+
+        // 4. Send
+        await axios.post(url, data, config);
+        console.log(`✅ Notification sent to ${to}`);
+        return true;
+
+    } catch (error) {
+        // Log the specific error from WhatsApp API if available
+        const errorMsg = error?.response?.data?.error?.message || error.message;
+        console.error(`❌ Failed to send WhatsApp to ${to}:`, errorMsg);
+        return false;
+    }
+};
+
 module.exports = {
     cleanAIResponse,
     extractMandatoryFieldsFromFlow,
@@ -533,4 +582,5 @@ module.exports = {
     stripHtml,
     extractField,
     generateRefID,
+    sendWhatsAppNotification,
 };

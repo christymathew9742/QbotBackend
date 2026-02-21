@@ -51,6 +51,7 @@ const AppointmentSchema = new Schema(
         currentNode:Number,
         refId:String,
         googleEventId: String,
+        googleCalendarId: { type: String },
         history: {
             type: [MessageSchema],
             required: true,

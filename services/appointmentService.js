@@ -1,5 +1,7 @@
 const  AppointmentModal = require('../models/AppointmentModal');
 const { errorResponse } = require('../utils/errorResponse');
+const { sendWhatsAppNotification } = require('../utils/common');
+const { deleteBookingEvent } = require('./googleCalendarService');
 
 // get all appointment
 const getDayRangeInUTC = (dateStr, timeZone) => {
@@ -126,28 +128,59 @@ const getAppointmentsById = async (id, userId) => {
     }
 };
 
-// Updating a Appointments with unique title validation
 const updateAppointments = async (id, appointmentData, userId) => {
+
     try {
-        if(appointmentData?.status) {
-            const updateAppointments = await AppointmentModal.findOneAndUpdate(
-                { _id: id, user: userId },
-                { 
-                    ...appointmentData,
-                    lastUpdatedAt: new Date() 
-                },
-                {
-                    new: true,
-                    runValidators: true,
-                },
-            );
-            if (!updateAppointments) {
-                throw errorResponse('ChatBot not found', 404);
+        const updatedAppointment = await AppointmentModal.findOneAndUpdate(
+            { _id: id, user: userId },
+            { 
+                ...appointmentData,
+                lastUpdatedAt: new Date() 
+            },
+            {
+                new: true,
+                runValidators: true,
             }
-            return updateAppointments;
+        );
+
+        if (!updatedAppointment) {
+            throw new Error('Appointment not found');
         }
+
+        if (appointmentData?.status) {
+            const status = appointmentData.status.toLowerCase();
+            const triggerStatuses = ['cancelled', 'completed'];
+
+            if (triggerStatuses.includes(status)) {
+                
+                const customerPhone = updatedAppointment?.whatsAppNumber;
+
+                if (customerPhone) {
+                    let messageText = "";
+
+                    if (status.includes('cancel')) {
+                            messageText = `Hello ${updatedAppointment?.profileName} 👋. We regret to inform you that your appointment has been cancelled due to unforeseen operational reasons 🚫. We sincerely apologize for the inconvenience. Please kindly rebook your appointment for the next nearest available date 🗓️. Thank you for your patience and understanding.`;
+                    } else if (status === 'completed') {
+                        messageText = `Hello ${updatedAppointment?.profileName} 👋. Your appointment has been successfully completed ✅. Thank you for visiting us.`;
+                    }
+
+                    if (updatedAppointment?.googleEventId) {
+                        await deleteBookingEvent(
+                            userId, 
+                            updatedAppointment.googleEventId, 
+                            updatedAppointment.googleCalendarId 
+                        );
+                    }
+
+                    await sendWhatsAppNotification(customerPhone, messageText, userId);
+                }
+            }
+        }
+
+        return updatedAppointment;
+
     } catch (error) {
-        throw new Error(`Error updating ChatBot: ${error.message}`);
+        throw new Error(`Error updating Appointment: ${error.message}`);
     }
 };
 

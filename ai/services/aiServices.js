@@ -173,9 +173,12 @@ const createAIResponse = async (chatData) => {
 
             if (userOption === "cancel") {
                 try {
-                    // 1. Delete Google Calendar Event if it exists
                     if (existingAppointment?.googleEventId) {
-                        await deleteBookingEvent(userId, existingAppointment.googleEventId);
+                        await deleteBookingEvent(
+                            userId, 
+                            existingAppointment.googleEventId, 
+                            existingAppointment.googleCalendarId 
+                        );
                     }
 
                     const result = await AppointmentModal.updateOne(
@@ -730,6 +733,29 @@ const createAIResponse = async (chatData) => {
                                 throw new Error('SLOT_EXPIRED');
                             }
 
+                            const bookingResult = await createBookingEvent(
+                                userId, 
+                                profileName,
+                                bookedSlot, 
+                                { title: flowTrainingData?.title || "Consultation" }, 
+                                finalRefId,
+                                businessProfile,
+                                language,
+                                timezone,
+                            );
+
+                            if (bookingResult && bookingResult.eventId) {
+                                await Slots.updateOne(
+                                    { _id: bookedSlot._id },
+                                    { 
+                                        $set: { 
+                                            googleEventId: bookingResult.eventId,
+                                            googleCalendarId: bookingResult.calendarId 
+                                        } 
+                                    },
+                                );
+                            }
+
                             if (autoSendBookingPdf) {
                                 const slotDisplayString = bookedSlot.slot
                                     .replace('PRE-SUB_', '')
@@ -747,24 +773,6 @@ const createAIResponse = async (chatData) => {
                                     language,
                                     timezone,
                                 });
-                            }
-
-                            const googleEventId = await createBookingEvent(
-                                userId, 
-                                profileName,
-                                bookedSlot, 
-                                { title: flowTrainingData?.title || "Consultation" },
-                                finalRefId,
-                                businessProfile,
-                                language,
-                                timezone,
-                            );
-
-                            if (googleEventId) {
-                                await Slots.updateOne(
-                                    { _id: bookedSlot._id },
-                                    { $set: { googleEventId: googleEventId } },
-                                );
                             }
 
                         } catch (err) {
@@ -896,7 +904,8 @@ const createAIResponse = async (chatData) => {
                                 sentimentScores: averageSentimentScoresSafe(sentimentHistory),
                                 lastActiveAt: userRespondTime,
                                 lastUpdatedAt: new Date().toISOString(),
-                                googleEventId: finalSlotData?.googleEventId || existingAppointment?.googleEventId 
+                                googleEventId: finalSlotData?.googleEventId || existingAppointment?.googleEventId,
+                                googleCalendarId: finalSlotData?.googleCalendarId || existingAppointment?.googleCalendarId
                             },
                             $inc: { __v: 1 },
                             $push: {
