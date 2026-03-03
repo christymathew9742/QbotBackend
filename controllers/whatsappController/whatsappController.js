@@ -42,8 +42,18 @@ const RETRY_DELAY_MS = 1000;
 const verifyWebhook = async (req, res) => {
     const challenge = req.query['hub.challenge'];
     const token = req.query['hub.verify_token'];
+    const mode = req.query['hub.mode'];
     const isRecord = await User.findOne({ verifytoken: token });
-    return isRecord ? res.status(200).send(challenge) : res.status(403).send('Invalid verify token');
+
+    if (mode !== 'subscribe') {
+        return res.status(400).send('Invalid mode');
+    }
+
+    if (!isRecord) {
+        return res.status(403).send('Invalid verify token');
+    }
+    
+    return res.status(200).send(challenge);
 };
 
 const handleIncomingMessage = async (req, res) => {
