@@ -356,7 +356,7 @@ const saveTokens = async (code, userId) => {
     const existingConnection = await GoogleCalendarToken.findOne({ email: userEmail });
 
     if (existingConnection && existingConnection.userId.toString() !== userId.toString()) {
-        throw new Error(`The email ${userEmail} is already connected to another account.`);
+        throw new Error(`${userEmail} is already connected to another account.`);
     }
 
     return GoogleCalendarToken.findOneAndUpdate(

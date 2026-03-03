@@ -24,18 +24,18 @@ exports.calendarCallback = async (req, res) => {
 
     if (!code || !userId) {
       console.error("Callback missing code or userId");
-      return res.redirect(`${FRONTEND_URL}/general-settings?tab=0&status=error&message=Missing_Credentials`);
+      return res.redirect(`https://qbot-assistant.vercel.app/general-settings?tab=0&status=error&message=Missing Credentials`);
     }
 
     await googleCalendarService.saveTokens(code, userId);
 
-    return res.redirect(`${FRONTEND_URL}/general-settings?tab=0&status=connected`);
+    return res.redirect(`https://qbot-assistant.vercel.app/general-settings?tab=0&status=connected`);
 
   } catch (err) {
     console.error("Calendar Callback Error:", err.message);
 
     const errorMessage = encodeURIComponent(err.message || "Unknown_Error");
-    return res.redirect(`${FRONTEND_URL}/general-settings?tab=0&status=disconnected&message=${errorMessage}`);
+    return res.redirect(`https://qbot-assistant.vercel.app/general-settings?tab=0&status=disconnected&message=${errorMessage}`);
   }
 };
 
