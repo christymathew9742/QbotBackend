@@ -1,7 +1,7 @@
 const googleCalendarService = require("../services/googleCalendarService");
 const GoogleCalendarToken = require("../models/GoogleCalendarToken");
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3001";
+const FRONTEND_URL = "https://qbot-assistant.vercel.app" // process.env.FRONTEND_URL || "http://localhost:3001";
 
 exports.connectCalendar = async (req, res) => {
   try {
